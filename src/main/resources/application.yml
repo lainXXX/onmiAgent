@@ -1,0 +1,5 @@
+spring:
+  config:
+    name: omniAgent
+  profiles:
+    active: dev
