@@ -1,21 +1,35 @@
 package top.javarem.omni.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.springframework.ai.tool.annotation.ToolParam;
 import java.util.List;
 import java.util.Map;
 
 /**
  * 工具请求参数包装
- *
- * @param questions 1~4 个问题
- * @param metadata  大模型传来的内部元数据（如 source: "remember"）
  */
-public record AskUserQuestionRequest(
-    @ToolParam(description = "问题数组，支持多个问题（1~4个）")
-    @JsonProperty(required = true)
-    List<Question> questions,
+public class AskUserQuestionRequest {
 
-    @ToolParam(description = "内部元数据")
-    Map<String, Object> metadata
-) {}
+    @JsonProperty("questions")
+    private List<Question> questions;
+
+    @JsonProperty("metadata")
+    private Map<String, Object> metadata;
+
+    // Jackson 需要
+    public AskUserQuestionRequest() {}
+
+    public AskUserQuestionRequest(
+            @JsonProperty("questions") List<Question> questions,
+            @JsonProperty("metadata") Map<String, Object> metadata) {
+        this.questions = questions;
+        this.metadata = metadata;
+    }
+
+    public List<Question> questions() {
+        return questions;
+    }
+
+    public Map<String, Object> metadata() {
+        return metadata;
+    }
+}

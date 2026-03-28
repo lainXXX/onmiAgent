@@ -48,7 +48,8 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
     protected ChatClientRequest doInitializeLoop(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
         // 保存用户消息
         String conversationId = (String) chatClientRequest.context().get(ChatMemory.CONVERSATION_ID);
-        memoryRepository.saveAll(conversationId, List.of(chatClientRequest.prompt().getUserMessage()));
+        String userId = (String) chatClientRequest.context().get("userId");
+        memoryRepository.saveAll(conversationId, userId, List.of(chatClientRequest.prompt().getUserMessage()));
         chatHistoryRepository.saveUserMessage(conversationId, null, chatClientRequest.prompt().getUserMessage().getText());
         return super.doInitializeLoop(chatClientRequest, callAdvisorChain);
     }
@@ -75,8 +76,9 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
     @Override
     protected ChatClientRequest doInitializeLoopStream(ChatClientRequest chatClientRequest, StreamAdvisorChain streamAdvisorChain) {
         String conversationId = (String) chatClientRequest.context().get(ChatMemory.CONVERSATION_ID);
+        String userId = (String) chatClientRequest.context().get("userId");
         chatHistoryRepository.saveUserMessage(conversationId, null, chatClientRequest.prompt().getUserMessage().getText());
-        memoryRepository.saveAll(conversationId, List.of(chatClientRequest.prompt().getUserMessage()));
+        memoryRepository.saveAll(conversationId, userId, List.of(chatClientRequest.prompt().getUserMessage()));
         return super.doInitializeLoopStream(chatClientRequest, streamAdvisorChain);
     }
 
@@ -181,7 +183,7 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
                 this.threadPoolExecutor.execute(() -> {
                     try {
                         chatHistoryRepository.saveAssistantMessage(conversationId, null, userId, toolInteractionMessages.get(toolInteractionMessages.size() - 1).getText());
-                        memoryRepository.saveAll(conversationId, toolInteractionMessages);
+                        memoryRepository.saveAll(conversationId, userId, toolInteractionMessages);
                         log.info("🎯 工具调用记忆存储成功，ID: {}, 共 {} 条消息", conversationId, toolInteractionMessages.size());
                     } catch (Exception e) {
                         log.error("数据库写入失败", e);

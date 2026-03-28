@@ -1,5 +1,7 @@
 package top.javarem.omni.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 /**
  * 用户批注结构
  *
@@ -7,6 +9,6 @@ package top.javarem.omni.model;
  * @param notes   用户手写备注
  */
 public record UserAnnotation(
-    String preview,
-    String notes
+    @JsonProperty("preview") String preview,
+    @JsonProperty("notes") String notes
 ) {}

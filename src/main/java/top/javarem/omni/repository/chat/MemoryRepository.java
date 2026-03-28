@@ -23,14 +23,14 @@ public class MemoryRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    // ==================== chat_history 表操作 ====================
+    // ==================== 聊天记忆表 chat_memory 操作 ====================
 
     /**
      * 保存用户消息，返回自增 ID
      */
     @Transactional
     public Long saveUserMessage(String conversationId, String userId, String content) {
-        String sql = "INSERT INTO spring_ai_chat_memory (parent_id, conversation_id, user_id, role, content) VALUES (NULL, ?, ?, 'USER', ?)";
+        String sql = "INSERT INTO chat_memory (parent_id, conversation_id, user_id, role, content) VALUES (NULL, ?, ?, 'USER', ?)";
         jdbcTemplate.update(sql, conversationId, userId, content);
         return jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }
@@ -39,9 +39,9 @@ public class MemoryRepository {
      * 保存助手消息
      */
     @Transactional
-    public void saveAssistantMessage(String conversationId, Long parentId, String content) {
-        String sql = "INSERT INTO chat_memory (parent_id, conversation_id, user_id, role, content) VALUES (?, ?, NULL, 'ASSISTANT', ?)";
-        jdbcTemplate.update(sql, parentId, conversationId, content);
+    public void saveAssistantMessage(String conversationId, Long parentId, String userId, String content) {
+        String sql = "INSERT INTO chat_memory (parent_id, conversation_id, user_id, role, content) VALUES (?, ?, ?, 'ASSISTANT', ?)";
+        jdbcTemplate.update(sql, parentId, conversationId, userId, content);
     }
 
     /**
@@ -130,7 +130,7 @@ public class MemoryRepository {
      */
     public List<Message> findMessagesByParentId(Long parentId) {
         String sql = """
-            SELECT id, parent_id, role, content FROM chat_history WHERE id = ? OR parent_id = ? ORDER BY id ASC
+            SELECT id, parent_id, role, content FROM chat_memory WHERE id = ? OR parent_id = ? ORDER BY id ASC
             """;
         return jdbcTemplate.query(sql, (rs, rowNum) -> {
             long pid = rs.getLong("parent_id");
@@ -146,11 +146,9 @@ public class MemoryRepository {
      */
     @Transactional
     public int deleteByParentId(Long parentId) {
-        String sql = "DELETE FROM chat_history WHERE id = ? OR parent_id = ?";
+        String sql = "DELETE FROM chat_memory WHERE id = ? OR parent_id = ?";
         return jdbcTemplate.update(sql, parentId, parentId);
     }
-
-    // ==================== 旧表 spring_ai_chat_memory 操作（兼容）====================
 
     /**
      * 压缩聊天记忆：删除中间记录，保留头部和尾部
@@ -172,18 +170,19 @@ public class MemoryRepository {
     }
 
     /**
-     * 批量插入聊天记录（旧表兼容）
+     * 批量插入聊天记录
      */
     @Transactional
-    public void saveAll(String sessionId, List<Message> messages) {
-        String sql = "INSERT INTO chat_memory (conversation_id, content, type) VALUES (?, ?, ?)";
+    public void saveAll(String conversationId, String userId, List<Message> messages) {
+        String sql = "INSERT INTO chat_memory (conversation_id, user_id, role, content) VALUES (?, ?, ?, ?)";
         jdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
             @Override
             public void setValues(PreparedStatement ps, int i) throws SQLException {
                 Message message = messages.get(i);
-                ps.setString(1, sessionId);
-                ps.setString(2, extractContent(message));
+                ps.setString(1, conversationId);
+                ps.setString(2, userId);
                 ps.setString(3, message.getMessageType().name());
+                ps.setString(4, extractContent(message));
             }
 
             @Override

@@ -12,8 +12,8 @@ import java.util.List;
  * @param multiSelect true=多选，false=单选
  */
 public record Question(
-    @JsonProperty(required = true) String header,
-    @JsonProperty(required = true) String question,
-    @JsonProperty(required = true) List<Option> options,
-    @JsonProperty(required = true) boolean multiSelect
+    @JsonProperty("header") String header,
+    @JsonProperty("question") String question,
+    @JsonProperty("options") List<Option> options,
+    @JsonProperty("multiSelect") boolean multiSelect
 ) {}

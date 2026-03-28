@@ -10,9 +10,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * @param preview     仅单选可用，用于展示代码片段、ASCII UI 草图或配置对比
  */
 public record Option(
-    @JsonProperty(required = true) String label,
-    @JsonProperty(required = true) String description,
-    String preview
+    @JsonProperty("label") String label,
+    @JsonProperty("description") String description,
+    @JsonProperty("preview") String preview
 ) {
     /**
      * 兼容旧构造函数（无 preview）
