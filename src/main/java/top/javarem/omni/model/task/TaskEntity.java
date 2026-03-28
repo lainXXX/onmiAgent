@@ -8,18 +8,20 @@ import java.util.UUID;
 /**
  * 任务实体类 (Record)
  * 用于存储和传输任务的核心信息，包含任务生命周期、优先级及依赖关系。
- * * @param id           任务唯一标识 (UUID)
+ *
+ * @param id           任务唯一标识 (UUID)
  * @param userId       所属用户 ID
- * @param sessionId    关联的会话 ID（用于追踪任务来源或上下文）
- * @param subject      任务标题/主题
- * @param description  任务详细描述
- * @param status       任务当前状态 (pending, in_progress, completed, deleted)
- * @param priority     任务优先级 (high, medium, low)
- * @param dueDate      截止日期
- * @param metadata     扩展元数据（用于存储插件或自定义业务数据）
- * @param dependencies 依赖的任务 ID 列表（当前任务开始前需完成的前置任务）
- * @param createdAt    创建时间
- * @param updatedAt    最后更新时间
+ * @param sessionId     关联的会话 ID（用于追踪任务来源或上下文）
+ * @param subject       任务标题/主题
+ * @param description   任务详细描述
+ * @param status        任务当前状态 (pending, in_progress, completed, deleted)
+ * @param activeForm    任务进行时在 UI 中显示的进行时描述
+ * @param owner         任务认领者（Agent 名称）
+ * @param metadata      扩展元数据（用于存储插件或自定义业务数据）
+ * @param blocks        当前任务阻塞的其他任务 ID 列表
+ * @param blockedBy     当前任务被阻塞的任务 ID 列表
+ * @param createdAt     创建时间
+ * @param updatedAt     最后更新时间
  */
 public record TaskEntity(
         UUID id,
@@ -28,10 +30,11 @@ public record TaskEntity(
         String subject,
         String description,
         String status,
-        String priority,
-        LocalDateTime dueDate,
+        String activeForm,
+        String owner,
         Map<String, Object> metadata,
-        List<UUID> dependencies,
+        List<UUID> blocks,
+        List<UUID> blockedBy,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {

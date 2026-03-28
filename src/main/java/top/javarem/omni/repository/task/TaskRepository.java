@@ -25,21 +25,22 @@ public class TaskRepository {
 
     public TaskEntity insert(TaskEntity task) {
         String sql = """
-            INSERT INTO ai_tasks (id, user_id, session_id, subject, description, status, priority, due_date, metadata, dependencies, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO ai_tasks (id, user_id, session_id, subject, description, status, active_form, owner, metadata, blocks, blocked_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
         jdbcTemplate.update(sql,
-            task.id().toString(),  // UUID 转 String
+            task.id().toString(),
             task.userId(),
             task.sessionId(),
             task.subject(),
             task.description() != null ? task.description() : "",
             task.status(),
-            task.priority(),
-            task.dueDate(),
+            task.activeForm(),
+            task.owner(),
             toJson(task.metadata()),
-            toJson(task.dependencies()),
+            toJson(task.blocks()),
+            toJson(task.blockedBy()),
             task.createdAt(),
             task.updatedAt()
         );
@@ -114,10 +115,11 @@ public class TaskRepository {
                 subject = ?,
                 description = ?,
                 status = ?,
-                priority = ?,
-                due_date = ?,
+                active_form = ?,
+                owner = ?,
                 metadata = ?,
-                dependencies = ?,
+                blocks = ?,
+                blocked_by = ?,
                 updated_at = ?
             WHERE id = ? AND user_id = ? AND session_id = ?
             """;
@@ -126,10 +128,11 @@ public class TaskRepository {
             task.subject(),
             task.description() != null ? task.description() : "",
             task.status(),
-            task.priority(),
-            task.dueDate(),
+            task.activeForm(),
+            task.owner(),
             toJson(task.metadata()),
-            toJson(task.dependencies()),
+            toJson(task.blocks()),
+            toJson(task.blockedBy()),
             LocalDateTime.now(),
             task.id().toString(),
             task.userId(),
@@ -148,8 +151,8 @@ public class TaskRepository {
     }
 
     public List<UUID> findUnfinishedDependencies(UUID taskId, String userId, String sessionId) {
-        // First get the dependencies list from the task
-        List<UUID> depIds = findDependencies(taskId, userId, sessionId);
+        // First get the blocked_by list from the task
+        List<UUID> depIds = findBlockedBy(taskId, userId, sessionId);
         if (depIds.isEmpty()) {
             return Collections.emptyList();
         }
@@ -174,13 +177,13 @@ public class TaskRepository {
     }
 
     public List<UUID> findDependents(UUID taskId, String userId, String sessionId) {
-        // MySQL doesn't have JSON operators, so we need to search in the JSON string
+        // Find tasks that have this task ID in their blocked_by list
         String searchPattern = "\"" + taskId.toString() + "\"";
         String sql = """
             SELECT id FROM ai_tasks
             WHERE id != ?
             AND user_id = ? AND session_id = ? AND status != 'deleted'
-            AND dependencies LIKE ?
+            AND blocked_by LIKE ?
             """;
 
         List<String> depIds = jdbcTemplate.queryForList(sql, String.class,
@@ -189,9 +192,9 @@ public class TaskRepository {
         return depIds.stream().map(UUID::fromString).toList();
     }
 
-    public List<UUID> findDependencies(UUID taskId, String userId, String sessionId) {
-        String sql = "SELECT dependencies FROM ai_tasks WHERE id = ? AND user_id = ? AND session_id = ?";
-        List<String> results = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getString("dependencies"),
+    public List<UUID> findBlockedBy(UUID taskId, String userId, String sessionId) {
+        String sql = "SELECT blocked_by FROM ai_tasks WHERE id = ? AND user_id = ? AND session_id = ?";
+        List<String> results = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getString("blocked_by"),
             taskId.toString(), userId, sessionId);
 
         if (results.isEmpty() || results.get(0) == null || results.get(0).isEmpty()) {
@@ -205,8 +208,25 @@ public class TaskRepository {
         return depIds.stream().map(UUID::fromString).toList();
     }
 
+    public List<UUID> findBlocks(UUID taskId, String userId, String sessionId) {
+        String sql = "SELECT blocks FROM ai_tasks WHERE id = ? AND user_id = ? AND session_id = ?";
+        List<String> results = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getString("blocks"),
+            taskId.toString(), userId, sessionId);
+
+        if (results.isEmpty() || results.get(0) == null || results.get(0).isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> blockIds = fromJson(results.get(0), new TypeReference<List<String>>() {});
+        if (blockIds == null) {
+            return Collections.emptyList();
+        }
+        return blockIds.stream().map(UUID::fromString).toList();
+    }
+
     private TaskEntity mapRow(java.sql.ResultSet rs) throws java.sql.SQLException {
-        List<String> deps = fromJson(rs.getString("dependencies"), new TypeReference<List<String>>() {});
+        List<String> blocks = fromJson(rs.getString("blocks"), new TypeReference<List<String>>() {});
+        List<String> blockedBy = fromJson(rs.getString("blocked_by"), new TypeReference<List<String>>() {});
         return new TaskEntity(
             UUID.fromString(rs.getString("id")),
             rs.getString("user_id"),
@@ -214,10 +234,11 @@ public class TaskRepository {
             rs.getString("subject"),
             rs.getString("description"),
             rs.getString("status"),
-            rs.getString("priority"),
-            rs.getTimestamp("due_date") != null ? rs.getTimestamp("due_date").toLocalDateTime() : null,
+            rs.getString("active_form"),
+            rs.getString("owner"),
             fromJson(rs.getString("metadata"), new TypeReference<Map<String, Object>>() {}),
-            deps != null ? deps.stream().map(UUID::fromString).toList() : Collections.emptyList(),
+            blocks != null ? blocks.stream().map(UUID::fromString).toList() : Collections.emptyList(),
+            blockedBy != null ? blockedBy.stream().map(UUID::fromString).toList() : Collections.emptyList(),
             rs.getTimestamp("created_at") != null ? rs.getTimestamp("created_at").toLocalDateTime() : null,
             rs.getTimestamp("updated_at") != null ? rs.getTimestamp("updated_at").toLocalDateTime() : null
         );

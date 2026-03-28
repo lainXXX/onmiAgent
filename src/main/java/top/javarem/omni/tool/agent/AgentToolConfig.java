@@ -59,40 +59,40 @@ public class AgentToolConfig implements AgentTool {
      * @param isolation 隔离模式（worktree）
      */
     @Tool(name = "Agent", description = """
-        Launch a new agent to handle complex, multi-step tasks autonomously.
-
-        The Agent tool launches specialized agents (subprocesses) that autonomously handle complex tasks.
-        Each agent type has specific capabilities and tools available to it.
-
-        Available agent types and the tools they have access to:
-        - explore: Fast agent for exploring codebases. Uses Glob, Grep, Read. (Tools: All except Edit, Write, Bash)
-        - plan: Software architect agent for designing implementation plans. (Tools: Read, Glob, Grep, Write, Edit)
-        - general: General-purpose agent for researching complex questions and executing multi-step tasks. (Tools: *)
-        - code-reviewer: Agent for reviewing code against plans and standards. (Tools: Read, Glob, Grep)
-        - claude-code-guide: Agent for answering questions about Claude Code CLI, SDK, and API. (Tools: WebSearch, WebFetch, Read)
-
-        ## Parameters
-        - description: Short task name (3-5 words) for parallel identification
-        - prompt: Detailed instructions for the sub-agent
-        - subagent_type: Agent type selection (default: general)
-        - run_in_background: Set true for async execution (default: false)
-        - resume: Agent ID to resume from (for continuing previous tasks)
-        - isolation: Set "worktree" for git worktree isolation
-
-        ## Usage
-        1. Call launchAgent with task description and agent type
-        2. Receive a taskId
-        3. Poll agentOutput with taskId to get results
-
-        When to Use:
-        - Complex multi-step tasks that can run independently
-        - Tasks requiring different expertise (explore vs plan)
-        - Parallel processing of related subtasks
-
-        When NOT to Use:
-        - Simple file reads (use Read tool directly)
-        - Simple class definitions (use Glob tool)
-        - Searching in 2-3 files (use Grep tool directly)
+            启动一个新的代理，自主处理复杂、多步骤的任务。
+                    
+            代理工具启动专门的代理（子进程），自主处理复杂任务。
+            每种代理类型都有其特定的功能和可用工具。
+                    
+            可用的代理类型及其可用工具：
+            - explore：用于探索代码库的快速代理。使用 Glob、Grep、Read。（工具：除编辑、写作、抨击外全部）
+            - plan：用于设计实施计划的软件架构代理。（工具：读取、凝聚、Grep、写入、编辑）
+            - 通用：用于研究复杂问题和执行多步骤任务的通用代理。（工具：*）
+            - 代码审查员：用于根据计划和标准审查代码的代理。（工具：Read、Glob、Grep）
+            - claude-code-guide：用于回答关于 Claude Code CLI、SDK 和 API 问题的代理。（工具：WebSearch、WebFetch、Read）
+                    
+            ## 参数
+            - 描述：简短的任务名称（3-5 个单词），用于并行识别
+            - 提示词：对子代理的详细说明
+            - subagent_type：代理类型选择（默认：通用）
+            - run_in_background：设为真以示异步执行（默认：false）
+            - 恢复：用于继续之前任务的代理 ID。
+            - 隔离：将“worktree”设置为 git 工作树隔离
+                    
+            ## 用途
+            1. 调用带有任务描述和代理类型的 launchAgent
+            2. 接收任务 ID
+            3. 轮询 agentOutput（带有 taskId）以获取结果
+                    
+            使用时间：
+            - 复杂且多步骤的任务，可以独立运行
+            - 需要不同专业知识的任务（探索与规划）
+            - 相关子任务的并行处理
+                    
+            何时不宜使用：
+            - 简单文件读取（直接使用读取工具）
+            - 简单类定义（使用 Glob 工具）
+            - 在 2-3 个文件中搜索（直接使用 Grep 工具）
         """)
     public String launchAgent(
             @ToolParam(description = "Task name (3-5 words) for parallel identification") String description,

@@ -20,8 +20,8 @@ public class TaskService {
     }
 
     public TaskEntity create(String userId, String sessionId, String subject,
-                             String description, String priority, LocalDateTime dueDate,
-                             List<UUID> dependencies, Map<String, Object> metadata) {
+                             String description, String activeForm,
+                             List<UUID> blockedBy, Map<String, Object> metadata) {
 
         // 合并 metadata，注入来源标识
         Map<String, Object> mergedMeta = new HashMap<>();
@@ -39,10 +39,11 @@ public class TaskService {
             subject,
             description != null ? description : "",
             TaskEntity.STATUS_PENDING,
-            priority != null ? priority : TaskEntity.PRIORITY_MEDIUM,
-            dueDate,
+            activeForm,
+            null,
             mergedMeta,
-            dependencies != null ? dependencies : Collections.emptyList(),
+            Collections.emptyList(),
+            blockedBy != null ? blockedBy : Collections.emptyList(),
             LocalDateTime.now(),
             LocalDateTime.now()
         );
@@ -71,8 +72,9 @@ public class TaskService {
 
     public TaskEntity update(UUID taskId, String userId, String sessionId,
                             String subject, String description, String status,
-                            String priority, LocalDateTime dueDate,
-                            Map<String, Object> metadata, List<UUID> dependencies) {
+                            String activeForm, String owner,
+                            List<UUID> blocks, List<UUID> blockedBy,
+                            Map<String, Object> metadata) {
 
         TaskEntity existing = repository.findById(taskId, userId, sessionId)
             .orElseThrow(() -> TaskException.notFound(taskId));
@@ -84,8 +86,32 @@ public class TaskService {
         }
 
         // 循环依赖检测
-        if (dependencies != null && !dependencies.isEmpty()) {
-            checkCircularDependency(taskId, dependencies, userId, sessionId);
+        if (blockedBy != null && !blockedBy.isEmpty()) {
+            checkCircularDependency(taskId, blockedBy, userId, sessionId);
+        }
+
+        // 合并 metadata
+        Map<String, Object> mergedMeta = new HashMap<>(existing.metadata());
+        if (metadata != null) {
+            for (Map.Entry<String, Object> entry : metadata.entrySet()) {
+                if (entry.getValue() == null) {
+                    mergedMeta.remove(entry.getKey());
+                } else {
+                    mergedMeta.put(entry.getKey(), entry.getValue());
+                }
+            }
+        }
+
+        // 合并 blocks
+        List<UUID> mergedBlocks = new java.util.ArrayList<>(existing.blocks());
+        if (blocks != null) {
+            mergedBlocks.addAll(blocks);
+        }
+
+        // 合并 blockedBy
+        List<UUID> mergedBlockedBy = new java.util.ArrayList<>(existing.blockedBy());
+        if (blockedBy != null) {
+            mergedBlockedBy.addAll(blockedBy);
         }
 
         TaskEntity updated = new TaskEntity(
@@ -95,10 +121,11 @@ public class TaskService {
             subject != null ? subject : existing.subject(),
             description != null ? description : existing.description(),
             status != null ? status : existing.status(),
-            priority != null ? priority : existing.priority(),
-            dueDate != null ? dueDate : existing.dueDate(),
-            metadata != null ? metadata : existing.metadata(),
-            dependencies != null ? dependencies : existing.dependencies(),
+            activeForm != null ? activeForm : existing.activeForm(),
+            owner != null ? owner : existing.owner(),
+            mergedMeta,
+            mergedBlocks,
+            mergedBlockedBy,
             existing.createdAt(),
             LocalDateTime.now()
         );
@@ -127,16 +154,16 @@ public class TaskService {
         }
     }
 
-    private void checkCircularDependency(UUID taskId, List<UUID> newDeps,
+    private void checkCircularDependency(UUID taskId, List<UUID> newBlockedBy,
                                          String userId, String sessionId) {
         // 检测直接依赖自己
-        if (newDeps.contains(taskId)) {
+        if (newBlockedBy.contains(taskId)) {
             throw TaskException.circularDependency();
         }
 
         // 深度检测
         Set<UUID> visited = new HashSet<>();
-        for (UUID depId : newDeps) {
+        for (UUID depId : newBlockedBy) {
             if (detectCycle(depId, taskId, userId, sessionId, visited)) {
                 throw TaskException.circularDependency();
             }
@@ -150,8 +177,8 @@ public class TaskService {
 
         visited.add(current);
 
-        List<UUID> deps = repository.findDependencies(current, userId, sessionId);
-        for (UUID depId : deps) {
+        List<UUID> blockedBy = repository.findBlockedBy(current, userId, sessionId);
+        for (UUID depId : blockedBy) {
             if (detectCycle(depId, target, userId, sessionId, new HashSet<>(visited))) {
                 return true;
             }

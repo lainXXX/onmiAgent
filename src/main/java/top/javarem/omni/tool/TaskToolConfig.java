@@ -31,7 +31,6 @@ public class TaskToolConfig implements AgentTool {
 
     private static final long DEFAULT_TIMEOUT_MS = 30_000;
     private static final Set<String> VALID_STATUSES = Set.of("pending", "in_progress", "completed");
-    private static final Set<String> VALID_PRIORITIES = Set.of("high", "medium", "low");
 
     private final TaskService taskService;
     private final ObjectMapper objectMapper;
@@ -62,18 +61,16 @@ public class TaskToolConfig implements AgentTool {
             - Purely conversational or informational
 
             ## Task Fields
-            - subject: Brief, actionable title (e.g., "Fix authentication bug")
-            - description: Detailed requirements and acceptance criteria
-            - priority: high/medium/low
-            - dueDate: ISO-8601 format like 2026-03-31
-            - dependencies: List of task IDs this task depends on
+            - subject: Brief, actionable title in imperative mood (e.g., "Fix authentication bug")
+            - description: Detailed requirements, context and acceptance criteria
+            - activeForm: Progress description shown in UI loading animation
+            - metadata: Additional key-value pairs
             """)
     public String taskCreate(
-            @ToolParam(description = "任务标题") String subject,
-            @ToolParam(description = "任务描述", required = false) String description,
-            @ToolParam(description = "优先级: high/medium/low", required = false) String priority,
-            @ToolParam(description = "截止日期，ISO-8601格式如 2026-03-31", required = false) String dueDate,
-            @ToolParam(description = "依赖任务ID列表", required = false) List<String> dependencies,
+            @ToolParam(description = "简短、具体的标题，建议使用祈使句，如 'Fix authentication bug'") String subject,
+            @ToolParam(description = "详细说明需要执行的操作、上下文及验收标准") String description,
+            @ToolParam(description = "任务进行时在 UI（如加载动画）中显示的进行时描述", required = false) String activeForm,
+            @ToolParam(description = "附加的任意元数据（键值对格式）", required = false) Map<String, Object> metadata,
             ToolContext toolContext
             ) {
 
@@ -85,23 +82,26 @@ public class TaskToolConfig implements AgentTool {
                 log.warn("[TaskCreate] 任务标题为空，userId={}, sessionId={}", userId, sessionId);
                 return buildError("任务标题不能为空");
             }
-            if (priority != null && !VALID_PRIORITIES.contains(priority)) {
-                log.warn("[TaskCreate] 无效优先级={}, userId={}, sessionId={}", priority, userId, sessionId);
-                return buildError("无效的优先级: " + priority + "，可选值: high/medium/low");
+            if (description == null || description.isBlank()) {
+                log.warn("[TaskCreate] 任务描述为空，userId={}, sessionId={}", userId, sessionId);
+                return buildError("任务描述不能为空");
             }
 
-            List<UUID> deps = parseUUIDs(dependencies);
-            LocalDateTime due = parseDateTime(dueDate);
+            Map<String, Object> taskMetadata = new HashMap<>();
+            taskMetadata.put("agent_id", "system");
+            taskMetadata.put("last_action_source", "ai");
+            taskMetadata.put("created_at", LocalDateTime.now().toString());
+            if (activeForm != null && !activeForm.isBlank()) {
+                taskMetadata.put("activeForm", activeForm);
+            }
+            if (metadata != null && !metadata.isEmpty()) {
+                taskMetadata.putAll(metadata);
+            }
 
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("agent_id", "system");
-            metadata.put("last_action_source", "ai");
-            metadata.put("created_at", LocalDateTime.now().toString());
+            log.info("[TaskCreate] subject={}, activeForm={}, userId={}, sessionId={}",
+                    subject, activeForm, userId, sessionId);
 
-            log.info("[TaskCreate] subject={}, priority={}, dueDate={}, dependencies={}, userId={}, sessionId={}",
-                    subject, priority, dueDate, dependencies, userId, sessionId);
-
-            TaskEntity task = taskService.create(userId, sessionId, subject, description, priority, due, deps, metadata);
+            TaskEntity task = taskService.create(userId, sessionId, subject, description, activeForm, Collections.emptyList(), taskMetadata);
 
             log.info("[TaskCreate] 任务创建成功 id={}, subject={}", task.id(), task.subject());
             return buildSuccessResponse("任务创建成功", task);
@@ -219,20 +219,21 @@ public class TaskToolConfig implements AgentTool {
             pending → in_progress → completed
             Use deleted to permanently remove a task
 
-            ## Examples
-            Mark in progress: {"taskId": "xxx", "status": "in_progress"}
-            Mark completed: {"taskId": "xxx", "status": "completed"}
-            Set dependencies: {"taskId": "2", "addBlockedBy": ["1"]}
+            ## Field Updates
+            - addBlocks: Mark tasks this task blocks (must complete before others start)
+            - addBlockedBy: Mark tasks this task depends on (must complete first)
+            - metadata: Merged incrementally (pass null to delete a key)
             """)
     public String taskUpdate(
-            @ToolParam(description = "任务ID") String taskId,
-            @ToolParam(description = "任务标题", required = false) String subject,
-            @ToolParam(description = "任务描述", required = false) String description,
-            @ToolParam(description = "状态: pending/in_progress/completed", required = false) String status,
-            @ToolParam(description = "优先级: high/medium/low", required = false) String priority,
-            @ToolParam(description = "截止日期，ISO-8601格式", required = false) String dueDate,
-            @ToolParam(description = "metadata Map，会增量合并", required = false) Map<String, Object> metadata,
-            @ToolParam(description = "依赖任务ID列表", required = false) List<String> dependencies,
+            @ToolParam(description = "需要更新的任务ID") String taskId,
+            @ToolParam(description = "修改任务标题", required = false) String subject,
+            @ToolParam(description = "修改任务详细描述", required = false) String description,
+            @ToolParam(description = "新状态: pending/in_progress/completed", required = false) String status,
+            @ToolParam(description = "修改任务进行时的展示文案", required = false) String activeForm,
+            @ToolParam(description = "认领任务（更改任务拥有者的 Agent 名称）", required = false) String owner,
+            @ToolParam(description = "标记当前任务完成后，哪些任务才能开始", required = false) List<String> addBlocks,
+            @ToolParam(description = "标记哪些任务必须先完成，当前任务才能开始", required = false) List<String> addBlockedBy,
+            @ToolParam(description = "合并元数据（传 null 表示删除该键）", required = false) Map<String, Object> metadata,
             ToolContext toolContext) {
 
         try {
@@ -243,19 +244,15 @@ public class TaskToolConfig implements AgentTool {
                 log.warn("[TaskUpdate] 无效状态={}, taskId={}, userId={}, sessionId={}", status, taskId, userId, sessionId);
                 return buildError("无效的状态: " + status + "，可选值: pending/in_progress/completed");
             }
-            if (priority != null && !VALID_PRIORITIES.contains(priority)) {
-                log.warn("[TaskUpdate] 无效优先级={}, taskId={}, userId={}, sessionId={}", priority, taskId, userId, sessionId);
-                return buildError("无效的优先级: " + priority + "，可选值: high/medium/low");
-            }
 
             UUID id = parseUUID(taskId);
-            List<UUID> deps = parseUUIDs(dependencies);
-            LocalDateTime due = parseDateTime(dueDate);
+            List<UUID> blocks = parseUUIDs(addBlocks);
+            List<UUID> blockedBy = parseUUIDs(addBlockedBy);
 
-            log.info("[TaskUpdate] taskId={}, subject={}, status={}, priority={}, userId={}, sessionId={}",
-                    taskId, subject, status, priority, userId, sessionId);
+            log.info("[TaskUpdate] taskId={}, subject={}, status={}, activeForm={}, owner={}, userId={}, sessionId={}",
+                    taskId, subject, status, activeForm, owner, userId, sessionId);
 
-            TaskEntity task = taskService.update(id, userId, sessionId, subject, description, status, priority, due, metadata, deps);
+            TaskEntity task = taskService.update(id, userId, sessionId, subject, description, status, activeForm, owner, blocks, blockedBy, metadata);
 
             log.info("[TaskUpdate] id={}, newStatus={}", task.id(), task.status());
             return buildSuccessResponse("任务更新成功", task);
@@ -281,8 +278,8 @@ public class TaskToolConfig implements AgentTool {
 
             ## Parameters
             - task_id: The background task ID
-            - block: Wait for completion (default: false)
-            - timeout: Max wait time in ms (default: 30000)
+            - block: Wait for completion (default: true)
+            - timeout: Max wait time in ms (default: 30000, max: 600000)
             """)
     public String taskOutput(
             @ToolParam(description = "任务ID") String taskId,
@@ -467,12 +464,17 @@ public class TaskToolConfig implements AgentTool {
         sb.append("- **标题**: ").append(task.subject()).append("\n");
         sb.append("- **描述**: ").append(task.description() != null && !task.description().isEmpty() ? task.description() : "(无)").append("\n");
         sb.append("- **状态**: ").append(formatStatus(task.status())).append("\n");
-        sb.append("- **优先级**: ").append(formatPriority(task.priority())).append("\n");
-        if (task.dueDate() != null) {
-            sb.append("- **截止日期**: ").append(task.dueDate()).append("\n");
+        if (task.activeForm() != null && !task.activeForm().isEmpty()) {
+            sb.append("- **进行中**: ").append(task.activeForm()).append("\n");
         }
-        if (!task.dependencies().isEmpty()) {
-            sb.append("- **依赖**: ").append(task.dependencies().size()).append(" 个任务\n");
+        if (task.owner() != null && !task.owner().isEmpty()) {
+            sb.append("- **认领者**: ").append(task.owner()).append("\n");
+        }
+        if (!task.blockedBy().isEmpty()) {
+            sb.append("- **被阻塞**: ").append(task.blockedBy().size()).append(" 个任务\n");
+        }
+        if (!task.blocks().isEmpty()) {
+            sb.append("- **阻塞**: ").append(task.blocks().size()).append(" 个任务\n");
         }
         sb.append("- **创建时间**: ").append(task.createdAt()).append("\n");
         sb.append("- **更新时间**: ").append(task.updatedAt()).append("\n");
@@ -485,15 +487,6 @@ public class TaskToolConfig implements AgentTool {
             case "in_progress" -> "🔄 进行中";
             case "completed" -> "✅ 已完成";
             default -> status;
-        };
-    }
-
-    private String formatPriority(String priority) {
-        return switch (priority) {
-            case "high" -> "🔴 高";
-            case "medium" -> "🟡 中";
-            case "low" -> "🟢 低";
-            default -> priority != null ? priority : "中";
         };
     }
 
@@ -515,9 +508,11 @@ public class TaskToolConfig implements AgentTool {
               .append(task.subject()).append("\n\n");
             sb.append("```\n");
             sb.append("ID: ").append(task.id()).append("\n");
-            sb.append("优先级: ").append(formatPriority(task.priority())).append("\n");
-            if (task.dueDate() != null) {
-                sb.append("截止: ").append(task.dueDate().toLocalDate()).append("\n");
+            if (task.owner() != null && !task.owner().isEmpty()) {
+                sb.append("认领: ").append(task.owner()).append("\n");
+            }
+            if (!task.blockedBy().isEmpty()) {
+                sb.append("被阻塞: ").append(task.blockedBy().size()).append(" 个\n");
             }
             sb.append("```\n\n");
         }
