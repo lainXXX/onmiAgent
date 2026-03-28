@@ -4,7 +4,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.javarem.omni.model.*;
-import top.javarem.omni.model.Question;
 
 import java.io.IOException;
 import java.util.Map;
@@ -57,10 +56,10 @@ public class AskUserQuestionService {
         future.orTimeout(timeoutSeconds, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
                     if (ex instanceof TimeoutException) {
-                        log.info("[AskUserQuestion] Question {} timed out", questionId);
+                        log.info("[AskUserQuestion] 问题 {} 已超时", questionId);
                         return AskUserResponse.timeoutResponse();
                     }
-                    log.error("[AskUserQuestion] Question {} error", questionId, ex);
+                    log.error("[AskUserQuestion] 问题 {} 执行异常", questionId, ex);
                     throw new RuntimeException(ex);
                 });
 
@@ -70,7 +69,7 @@ public class AskUserQuestionService {
             sseEmitters.remove(questionId);
         });
 
-        log.info("[AskUserQuestion] Created question {}, {} questions, timeout={}s",
+        log.info("[AskUserQuestion] 创建问题 {}，共 {} 个问题，超时时间={}秒",
                 questionId, request.questions().size(), timeoutSeconds);
 
         return future;
@@ -90,14 +89,14 @@ public class AskUserQuestionService {
 
         CompletableFuture<AskUserResponse> future = pendingFutures.get(questionId);
         if (future == null) {
-            log.warn("[AskUserQuestion] Question {} not found or already answered", questionId);
+            log.warn("[AskUserQuestion] 问题 {} 不存在或已回答", questionId);
             return;
         }
 
         AskUserResponse response = AskUserResponse.of(answers, annotations);
         future.complete(response);
 
-        log.info("[AskUserQuestion] Question {} answered: {}", questionId, answers);
+        log.info("[AskUserQuestion] 问题 {} 已回答: {}", questionId, answers);
     }
 
     /**
@@ -109,13 +108,13 @@ public class AskUserQuestionService {
     public void skipQuestion(String questionId, String reason) {
         CompletableFuture<AskUserResponse> future = pendingFutures.get(questionId);
         if (future == null) {
-            log.warn("[AskUserQuestion] Question {} not found or already answered", questionId);
+            log.warn("[AskUserQuestion] 问题 {} 不存在或已回答", questionId);
             return;
         }
 
         future.complete(AskUserResponse.skipped(reason));
 
-        log.info("[AskUserQuestion] Question {} skipped: {}", questionId, reason);
+        log.info("[AskUserQuestion] 问题 {} 已跳过: {}", questionId, reason);
     }
 
     /**
@@ -126,17 +125,17 @@ public class AskUserQuestionService {
         sseEmitters.put(questionId, emitter);
 
         emitter.onCompletion(() -> {
-            log.debug("[AskUserQuestion] SSE completed for question {}", questionId);
+            log.debug("[AskUserQuestion] SSE 连接完成，问题 {}", questionId);
             sseEmitters.remove(questionId);
         });
 
         emitter.onTimeout(() -> {
-            log.debug("[AskUserQuestion] SSE timed out for question {}", questionId);
+            log.debug("[AskUserQuestion] SSE 超时，问题 {}", questionId);
             sseEmitters.remove(questionId);
         });
 
         emitter.onError(e -> {
-            log.debug("[AskUserQuestion] SSE error for question {}: {}", questionId, e.getMessage());
+            log.debug("[AskUserQuestion] SSE 错误，问题 {}: {}", questionId, e.getMessage());
             sseEmitters.remove(questionId);
         });
 
@@ -149,7 +148,7 @@ public class AskUserQuestionService {
     private void pushSseEvent(String questionId, AskUserQuestionRequest request) {
         SseEmitter emitter = sseEmitters.get(questionId);
         if (emitter == null) {
-            log.debug("[AskUserQuestion] No SSE emitter for question {}, will be created on poll", questionId);
+            log.debug("[AskUserQuestion] 无 SSE emitter，问题 {} 将在轮询时创建", questionId);
             return;
         }
 
@@ -164,9 +163,9 @@ public class AskUserQuestionService {
                     ));
 
             emitter.send(event);
-            log.debug("[AskUserQuestion] SSE event sent for question {}", questionId);
+            log.debug("[AskUserQuestion] SSE 事件已发送，问题 {}", questionId);
         } catch (IOException e) {
-            log.error("[AskUserQuestion] Failed to send SSE event for question {}", questionId, e);
+            log.error("[AskUserQuestion] SSE 事件发送失败，问题 {}", questionId, e);
             emitter.completeWithError(e);
         }
     }
@@ -178,7 +177,7 @@ public class AskUserQuestionService {
         pendingFutures.entrySet().removeIf(entry -> {
             CompletableFuture<AskUserResponse> future = entry.getValue();
             if (future.isDone() || future.isCancelled()) {
-                log.debug("[AskUserQuestion] Cleanup expired future: {}", entry.getKey());
+                log.debug("[AskUserQuestion] 清理过期 Future: {}", entry.getKey());
                 return true;
             }
             return false;
