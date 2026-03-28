@@ -30,7 +30,7 @@ public class MemoryRepository {
      */
     @Transactional
     public Long saveUserMessage(String conversationId, String userId, String content) {
-        String sql = "INSERT INTO chat_history (parent_id, conversation_id, user_id, role, content) VALUES (NULL, ?, ?, 'USER', ?)";
+        String sql = "INSERT INTO spring_ai_chat_memory (parent_id, conversation_id, user_id, role, content) VALUES (NULL, ?, ?, 'USER', ?)";
         jdbcTemplate.update(sql, conversationId, userId, content);
         return jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }
@@ -40,7 +40,7 @@ public class MemoryRepository {
      */
     @Transactional
     public void saveAssistantMessage(String conversationId, Long parentId, String content) {
-        String sql = "INSERT INTO chat_history (parent_id, conversation_id, user_id, role, content) VALUES (?, ?, NULL, 'ASSISTANT', ?)";
+        String sql = "INSERT INTO chat_memory (parent_id, conversation_id, user_id, role, content) VALUES (?, ?, NULL, 'ASSISTANT', ?)";
         jdbcTemplate.update(sql, parentId, conversationId, content);
     }
 
@@ -50,7 +50,7 @@ public class MemoryRepository {
     public List<ChatHistoryRow> findByConversationId(String conversationId) {
         String sql = """
             SELECT id, parent_id, conversation_id, user_id, role, content, metadata, created_at
-            FROM chat_history WHERE conversation_id = ? ORDER BY id ASC
+            FROM chat_memory WHERE conversation_id = ? ORDER BY id ASC
             """;
         return jdbcTemplate.query(sql, (rs, rowNum) -> {
             ChatHistoryRow row = new ChatHistoryRow();
@@ -71,7 +71,7 @@ public class MemoryRepository {
      * 根据会话 ID 查询消息历史（返回 Message 列表，用于构建 Prompt）
      */
     public List<Message> findMessagesByConversationId(String conversationId) {
-        String sql = "SELECT role, content FROM chat_history WHERE conversation_id = ? ORDER BY id ASC";
+        String sql = "SELECT role, content FROM chat_memory WHERE conversation_id = ? ORDER BY id ASC";
         return jdbcTemplate.query(sql, (rs, rowNum) -> {
             String role = rs.getString("role");
             String content = rs.getString("content");
@@ -85,7 +85,7 @@ public class MemoryRepository {
     public List<ChatHistoryRow> findUserMessagesByConversationId(String conversationId) {
         String sql = """
             SELECT id, parent_id, conversation_id, user_id, role, content, metadata, created_at
-            FROM chat_history WHERE conversation_id = ? AND role = 'USER' ORDER BY id ASC
+            FROM chat_memory WHERE conversation_id = ? AND role = 'USER' ORDER BY id ASC
             """;
         return jdbcTemplate.query(sql, (rs, rowNum) -> {
             ChatHistoryRow row = new ChatHistoryRow();
@@ -108,7 +108,7 @@ public class MemoryRepository {
     public List<ChatHistoryRow> findByParentId(Long parentId) {
         String sql = """
             SELECT id, parent_id, conversation_id, user_id, role, content, metadata, created_at
-            FROM chat_history WHERE id = ? OR parent_id = ? ORDER BY id ASC
+            FROM chat_memory WHERE id = ? OR parent_id = ? ORDER BY id ASC
             """;
         return jdbcTemplate.query(sql, (rs, rowNum) -> {
             ChatHistoryRow row = new ChatHistoryRow();
@@ -161,11 +161,11 @@ public class MemoryRepository {
             throw new IllegalArgumentException("keepHead and keepTail must be non-negative");
         }
         String sql = """
-            DELETE FROM spring_ai_chat_memory WHERE conversation_id = ?
+            DELETE FROM chat_memory WHERE conversation_id = ?
             AND id NOT IN (
-              SELECT id FROM (SELECT id FROM spring_ai_chat_memory WHERE conversation_id = ? ORDER BY id ASC LIMIT ?) as h
+              SELECT id FROM (SELECT id FROM chat_memory WHERE conversation_id = ? ORDER BY id ASC LIMIT ?) as h
               UNION
-              SELECT id FROM (SELECT id FROM spring_ai_chat_memory WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) as t
+              SELECT id FROM (SELECT id FROM chat_memory WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) as t
             )
             """;
         return jdbcTemplate.update(sql, conversationId, conversationId, keepHead, conversationId, keepTail);
@@ -176,7 +176,7 @@ public class MemoryRepository {
      */
     @Transactional
     public void saveAll(String sessionId, List<Message> messages) {
-        String sql = "INSERT INTO spring_ai_chat_memory (conversation_id, content, type) VALUES (?, ?, ?)";
+        String sql = "INSERT INTO chat_memory (conversation_id, content, type) VALUES (?, ?, ?)";
         jdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
             @Override
             public void setValues(PreparedStatement ps, int i) throws SQLException {
