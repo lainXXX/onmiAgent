@@ -23,9 +23,8 @@ public class RagFileRepository {
      * 插入文件记录，返回自增 ID
      */
     public Long insert(Long kbId, String filename) {
-        String sql = "INSERT INTO kb_file (kb_id, filename, status, total_chunks) VALUES (?, ?, 'uploading', 0)";
-        jdbcTemplate.update(sql, kbId, filename);
-        return jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        String sql = "INSERT INTO kb_file (kb_id, filename, status, total_chunks) VALUES (?, ?, 'uploading', 0) RETURNING id";
+        return jdbcTemplate.queryForObject(sql, Long.class, kbId, filename);
     }
 
     /**

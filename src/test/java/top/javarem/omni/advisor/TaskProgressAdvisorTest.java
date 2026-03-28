@@ -44,8 +44,8 @@ class TaskProgressAdvisorTest {
         String sid = "session-stats-" + UUID.randomUUID();
 
         // 创建任务（默认pending状态）
-        taskService.create(uid, sid, "任务1", "描述", TaskEntity.PRIORITY_MEDIUM, null, null, null);
-        taskService.create(uid, sid, "任务2", "描述", TaskEntity.PRIORITY_MEDIUM, null, null, null);
+        taskService.create(uid, sid, "任务1", "描述", null, null, null);
+        taskService.create(uid, sid, "任务2", "描述", null, null, null);
 
         // 验证统计
         var stats = taskService.stats(uid, sid);
@@ -63,8 +63,8 @@ class TaskProgressAdvisorTest {
         String sid = "session-active-" + UUID.randomUUID();
 
         // 创建任务
-        taskService.create(uid, sid, "任务1", "描述", TaskEntity.PRIORITY_MEDIUM, null, null, null);
-        taskService.create(uid, sid, "任务2", "描述", TaskEntity.PRIORITY_MEDIUM, null, null, null);
+        taskService.create(uid, sid, "任务1", "描述", null, null, null);
+        taskService.create(uid, sid, "任务2", "描述", null, null, null);
 
         // 验证活跃任务数量
         var stats = taskService.stats(uid, sid);
@@ -116,7 +116,7 @@ class TaskProgressAdvisorTest {
         String sid2 = "session2-" + UUID.randomUUID();
 
         // 用户1创建任务
-        taskService.create(uid1, sid1, "任务1", "描述", TaskEntity.PRIORITY_MEDIUM, null, null, null);
+        taskService.create(uid1, sid1, "任务1", "描述", null, null, null);
 
         // 用户2不创建任务
         var stats1 = taskService.stats(uid1, sid1);

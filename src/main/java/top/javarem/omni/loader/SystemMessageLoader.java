@@ -43,4 +43,14 @@ public class SystemMessageLoader {
         }
     }
 
+    @Value("classpath:TOOLS.md")
+    private Resource toolsResource;
+    public String loadTools() {
+        try {
+            return toolsResource.getContentAsString(StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
 }

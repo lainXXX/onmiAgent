@@ -12,6 +12,7 @@ import org.springframework.http.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.web.reactive.function.client.WebClient;
+import top.javarem.omni.model.request.ChatRequest;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -84,7 +85,7 @@ class ChatControllerStorageIntegrationTest {
     @Order(1)
     void testNonStreamChat_storesToChatHistory() {
         // Given
-        ChatController.ChatRequest request = new ChatController.ChatRequest();
+        ChatRequest request = new ChatRequest();
         request.setQuestion("你好，请介绍一下你自己");
         request.setSessionId(sessionId);
 
@@ -122,7 +123,7 @@ class ChatControllerStorageIntegrationTest {
     @Order(2)
     void testNonStreamChat_storesToMemory() {
         // Given
-        ChatController.ChatRequest request = new ChatController.ChatRequest();
+        ChatRequest request = new ChatRequest();
         request.setQuestion("用一句话介绍海洋");
         request.setSessionId(sessionId);
 
@@ -152,7 +153,7 @@ class ChatControllerStorageIntegrationTest {
     @Order(3)
     void testStreamChat_storesToChatHistory() {
         // Given
-        ChatController.ChatRequest request = new ChatController.ChatRequest();
+        ChatRequest request = new ChatRequest();
         request.setQuestion("什么是人工智能？");
         request.setSessionId(sessionId);
 
@@ -196,7 +197,7 @@ class ChatControllerStorageIntegrationTest {
     @Order(4)
     void testStreamChat_storesToMemory() {
         // Given
-        ChatController.ChatRequest request = new ChatController.ChatRequest();
+        ChatRequest request = new ChatRequest();
         request.setQuestion("天为什么是蓝色的？");
         request.setSessionId(sessionId);
 
@@ -233,14 +234,14 @@ class ChatControllerStorageIntegrationTest {
     @Order(5)
     void testMultiRoundChat_preservesMemory() {
         // 第一轮
-        ChatController.ChatRequest request1 = new ChatController.ChatRequest();
+        ChatRequest request1 = new ChatRequest();
         request1.setQuestion("我的名字叫小明");
         request1.setSessionId(sessionId);
         String response1 = restTemplate.postForObject("/chat/user/input", request1, String.class);
         log.info("[第一轮响应] {}", response1);
 
         // 第二轮 - 问一个需要上下文的问题
-        ChatController.ChatRequest request2 = new ChatController.ChatRequest();
+        ChatRequest request2 = new ChatRequest();
         request2.setQuestion("我叫什么名字？");
         request2.setSessionId(sessionId);
         String response2 = restTemplate.postForObject("/chat/user/input", request2, String.class);
@@ -269,19 +270,19 @@ class ChatControllerStorageIntegrationTest {
 
         try {
             // 第一轮
-            ChatController.ChatRequest request1 = new ChatController.ChatRequest();
+            ChatRequest request1 = new ChatRequest();
             request1.setQuestion("你好");
             request1.setSessionId(progressSessionId);
             restTemplate.postForObject("/chat/user/input", request1, String.class);
 
             // 第二轮
-            ChatController.ChatRequest request2 = new ChatController.ChatRequest();
+            ChatRequest request2 = new ChatRequest();
             request2.setQuestion("今天天气怎么样？");
             request2.setSessionId(progressSessionId);
             restTemplate.postForObject("/chat/user/input", request2, String.class);
 
             // 第三轮
-            ChatController.ChatRequest request3 = new ChatController.ChatRequest();
+            ChatRequest request3 = new ChatRequest();
             request3.setQuestion("帮我搜索一下最新新闻");
             request3.setSessionId(progressSessionId);
             restTemplate.postForObject("/chat/user/input", request3, String.class);

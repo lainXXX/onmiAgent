@@ -9,6 +9,7 @@ import org.springframework.ai.chat.client.advisor.api.BaseAdvisor;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Component;
@@ -169,21 +170,14 @@ public class TaskProgressAdvisor implements BaseAdvisor {
             // 构建提醒文本
             String reminderText = buildReminder(userId, sessionId, execRounds);
 
-            // 获取当前用户消息文本
-            UserMessage currentUserMessage = request.prompt().getUserMessage();
-            String currentText = currentUserMessage.getText();
-
-            // 组合新消息：提醒 + 原消息
-            String newText = reminderText + (currentText != null ? currentText : "");
-
             // 创建新的UserMessage
-            UserMessage newUserMessage = new UserMessage(newText);
+            UserMessage reminderMessage = new UserMessage(reminderText);
 
             // 获取所有现有消息
             List<Message> allMessages = new ArrayList<>(request.prompt().getInstructions());
 
             // 在消息列表最前面插入提醒消息
-            allMessages.add(0, newUserMessage);
+            allMessages.add(reminderMessage);
 
             // 使用messages()方法重建prompt
             Prompt newPrompt = request.prompt().mutate()

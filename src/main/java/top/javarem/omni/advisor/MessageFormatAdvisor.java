@@ -47,6 +47,10 @@ public class MessageFormatAdvisor implements BaseAdvisor {
         // 1.获取系统消息
         String systemPrompt = systemMessageLoader.loadSystemPrompt();
         messages.add(new SystemMessage(systemPrompt));
+        String toolsMessage = systemMessageLoader.loadTools();
+        if (toolsMessage != null) {
+            messages.add(new UserMessage(toolsMessage));
+        }
         // 2.获取提醒消息
         if ((boolean) request.context().get(AdvisorContextConstants.ENABLE_SKILL)) {
             UserMessage skillMessage = new UserMessage(skillLoader.getSkillsDescription());

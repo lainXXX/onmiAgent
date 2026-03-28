@@ -8,12 +8,13 @@ import top.javarem.omni.model.AskUserResponse;
 import top.javarem.omni.model.UserAnnotation;
 import top.javarem.omni.service.AskUserQuestionService;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * AskUserQuestion 回调接口
- * 供前端提交答案和订阅 SSE 事件
+ * 供前端提交答案和订阅问题事件
  */
 @RestController
 @RequestMapping("/api/questions")
@@ -28,9 +29,7 @@ public class AskUserQuestionController {
 
     /**
      * 提交用户答案
-     *
      * POST /api/questions/{questionId}/answer
-     * Body: { "answers": {...}, "annotations": {...} }
      */
     @PostMapping("/{questionId}/answer")
     public void submitAnswer(
@@ -45,35 +44,75 @@ public class AskUserQuestionController {
             Map<String, UserAnnotation> annotations = request.annotations() != null
                     ? request.annotations()
                     : Map.of();
-
             service.submitAnswer(questionId, request.answers(), annotations);
         }
     }
 
     /**
-     * SSE 流：前端订阅以接收问题事件
+     * 轮询获取问题（长轮询）
+     * GET /api/questions/poll
      *
-     * GET /api/questions/pending?questionId={questionId}
-     *
-     * 前端先创建 emitter，后续问题会通过此 emitter 推送
+     * 如果有待回答问题，立即返回
+     * 否则阻塞等待直到有问题或超时（30秒）
      */
-    @GetMapping(value = "/pending", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @GetMapping(value = "/poll", produces = MediaType.APPLICATION_JSON_VALUE)
+    public QuestionPollResponse poll() {
+        try {
+            var pendingQuestion = service.pollForQuestion();
+            if (pendingQuestion != null) {
+                return new QuestionPollResponse(
+                        true,
+                        pendingQuestion.questionId(),
+                        pendingQuestion.request().questions(),
+                        pendingQuestion.request().metadata()
+                );
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("[AskUserController] 轮询被中断");
+        }
+        return new QuestionPollResponse(false, null, List.of(), null);
+    }
+
+    /**
+     * 获取所有待回答的问题（立即返回）
+     * GET /api/questions/pending
+     */
+    @GetMapping(value = "/pending", produces = MediaType.APPLICATION_JSON_VALUE)
+    public QuestionPollResponse getPending() {
+        var allPending = service.getAllPendingQuestions();
+        if (!allPending.isEmpty()) {
+            var first = allPending.get(0);
+            return new QuestionPollResponse(
+                    true,
+                    first.questionId(),
+                    first.request().questions(),
+                    first.request().metadata()
+            );
+        }
+        return new QuestionPollResponse(false, null, List.of(), null);
+    }
+
+    /**
+     * SSE 订阅（需要 questionId）
+     * GET /api/questions/subscribe?questionId={questionId}
+     */
+    @GetMapping(value = "/subscribe", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter subscribe(@RequestParam String questionId) {
         log.info("[AskUserController] SSE subscription for question {}", questionId);
         return service.createEmitter(questionId);
     }
 
     /**
-     * 查询当前是否有待回答的问题
+     * 获取当前是否有待回答的问题
+     * GET /api/questions/status
      */
     @GetMapping("/status")
     public QuestionStatus getStatus() {
         return new QuestionStatus(service.hasPendingQuestions(), service.getPendingCount());
     }
 
-    /**
-     * 答案提交请求体
-     */
+    // 请求/响应 DTO
     public record AnswerRequest(
             Map<String, String> answers,
             Map<String, UserAnnotation> annotations,
@@ -81,8 +120,12 @@ public class AskUserQuestionController {
             String skipReason
     ) {}
 
-    /**
-     * 问题状态响应
-     */
     public record QuestionStatus(boolean hasPending, int pendingCount) {}
+
+    public record QuestionPollResponse(
+            boolean hasQuestion,
+            String questionId,
+            List<?> questions,
+            Map<String, Object> metadata
+    ) {}
 }

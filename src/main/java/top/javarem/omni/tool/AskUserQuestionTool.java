@@ -71,9 +71,10 @@ public class AskUserQuestionTool implements AgentTool {
             - skipReason: reason if user chose to skip
             """)
     public CompletableFuture<AskUserResponse> askUserQuestion(
-            @ToolParam(description = "Question request containing 1~4 questions")
-            AskUserQuestionRequest request) {
+            @ToolParam(description = "Question request in JSON format containing 1~4 questions")
+            String requestJson) {
 
+        AskUserQuestionRequest request = AskUserQuestionRequest.fromJson(requestJson);
         log.info("[AskUserQuestion] Tool called with {} question(s)", request.questions().size());
 
         // 验证问题数量

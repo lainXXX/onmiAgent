@@ -20,10 +20,21 @@ public class AskUserQuestionService {
 
     private static final long SSE_TIMEOUT = 10L * 60 * 1000; // 10 minutes
     private static final long CLEANUP_INTERVAL = 5L * 60 * 1000; // 5 minutes
+    private static final long POLL_TIMEOUT_SECONDS = 30; // 轮询超时
 
     private final ConcurrentHashMap<String, CompletableFuture<AskUserResponse>> pendingFutures = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, SseEmitter> sseEmitters = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, PendingQuestion> pendingQuestions = new ConcurrentHashMap<>();
     private final ScheduledExecutorService cleanupExecutor = Executors.newSingleThreadScheduledExecutor();
+
+    /**
+     * 待处理问题的数据结构
+     */
+    public record PendingQuestion(
+            String questionId,
+            AskUserQuestionRequest request,
+            long createdAt
+    ) {}
 
     public AskUserQuestionService() {
         // 定时清理过期的 Future
@@ -46,10 +57,12 @@ public class AskUserQuestionService {
 
         CompletableFuture<AskUserResponse> future = new CompletableFuture<>();
 
-        // 注册 Future
+        // 注册 Future 和问题数据
         pendingFutures.put(questionId, future);
+        PendingQuestion pendingQuestion = new PendingQuestion(questionId, request, System.currentTimeMillis());
+        pendingQuestions.put(questionId, pendingQuestion);
 
-        // 推送 SSE 到前端
+        // 推送 SSE 到前端（如果已订阅）
         pushSseEvent(questionId, request);
 
         // 设置超时
@@ -66,6 +79,7 @@ public class AskUserQuestionService {
         // 清理注册
         future.whenComplete((result, ex) -> {
             pendingFutures.remove(questionId);
+            pendingQuestions.remove(questionId);
             sseEmitters.remove(questionId);
         });
 
@@ -77,10 +91,6 @@ public class AskUserQuestionService {
 
     /**
      * 提交用户答案
-     *
-     * @param questionId 问题ID
-     * @param answers    答案
-     * @param annotations 批注
      */
     public void submitAnswer(
             String questionId,
@@ -101,9 +111,6 @@ public class AskUserQuestionService {
 
     /**
      * 用户跳过
-     *
-     * @param questionId 问题ID
-     * @param reason     跳过原因
      */
     public void skipQuestion(String questionId, String reason) {
         CompletableFuture<AskUserResponse> future = pendingFutures.get(questionId);
@@ -148,7 +155,7 @@ public class AskUserQuestionService {
     private void pushSseEvent(String questionId, AskUserQuestionRequest request) {
         SseEmitter emitter = sseEmitters.get(questionId);
         if (emitter == null) {
-            log.debug("[AskUserQuestion] 无 SSE emitter，问题 {} 将在轮询时创建", questionId);
+            log.debug("[AskUserQuestion] 无 SSE emitter，问题 {} 已存入轮询队列", questionId);
             return;
         }
 
@@ -171,6 +178,43 @@ public class AskUserQuestionService {
     }
 
     /**
+     * 获取待回答的问题（轮询用）
+     * 如果有待回答问题，立即返回
+     * 否则等待直到有问题或超时
+     */
+    public PendingQuestion pollForQuestion() throws InterruptedException {
+        // 如果有待回答问题，立即返回
+        if (!pendingQuestions.isEmpty()) {
+            return pendingQuestions.values().iterator().next();
+        }
+
+        // 等待问题出现（最多 POLL_TIMEOUT_SECONDS）
+        long startTime = System.currentTimeMillis();
+        while (System.currentTimeMillis() - startTime < POLL_TIMEOUT_SECONDS * 1000) {
+            if (!pendingQuestions.isEmpty()) {
+                return pendingQuestions.values().iterator().next();
+            }
+            Thread.sleep(500); // 每 500ms 检查一次
+        }
+
+        return null; // 超时返回 null
+    }
+
+    /**
+     * 根据 questionId 获取问题详情
+     */
+    public PendingQuestion getQuestion(String questionId) {
+        return pendingQuestions.get(questionId);
+    }
+
+    /**
+     * 获取所有待回答的问题
+     */
+    public java.util.List<PendingQuestion> getAllPendingQuestions() {
+        return new java.util.ArrayList<>(pendingQuestions.values());
+    }
+
+    /**
      * 清理过期的 Future（防止内存泄漏）
      */
     private void cleanupExpiredFutures() {
@@ -182,18 +226,16 @@ public class AskUserQuestionService {
             }
             return false;
         });
+
+        // 清理过旧的问题（超过 10 分钟）
+        long cutoff = System.currentTimeMillis() - (10 * 60 * 1000);
+        pendingQuestions.entrySet().removeIf(entry -> entry.getValue().createdAt() < cutoff);
     }
 
-    /**
-     * 检查是否有待回答的问题
-     */
     public boolean hasPendingQuestions() {
         return !pendingFutures.isEmpty();
     }
 
-    /**
-     * 获取待回答问题数量
-     */
     public int getPendingCount() {
         return pendingFutures.size();
     }

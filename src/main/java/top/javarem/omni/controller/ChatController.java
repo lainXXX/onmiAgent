@@ -29,8 +29,6 @@ public class ChatController {
     @Resource
     private ToolsManager toolsManager;
 
-
-
     @PostMapping("/user/input")
     public String chat(@RequestBody ChatRequest request) {
         log.info("[SYNC] 用户问题：{}", request.getQuestion());
@@ -39,7 +37,6 @@ public class ChatController {
             String response = openAiChatClient.prompt()
                     .user(request.getQuestion())
                     .toolNames(allToolNames)
-                    // 传递参数给已有的 advisors（不会覆盖 AiConfig 中的配置）
                     .advisors(spec -> spec
                             .param(ChatMemory.CONVERSATION_ID, request.getSessionId())
                             .param(AdvisorContextConstants.ENABLE_SKILL, true)
@@ -59,38 +56,35 @@ public class ChatController {
 
     /**
      * 流式输出接口 (POST)
-     * 使用 ReadableStream + SSE 协议实现实时打字机效果
+     * 返回 Flux<String>，SSE 文本流
      */
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> streamChat(@RequestBody ChatRequest request) {
         log.info("[STREAM] 用户问题：{}", request.getQuestion());
         String[] allToolNames = toolsManager.getAllToolNames().toArray(new String[0]);
-        return openAiChatClient.prompt()
-                .user(request.getQuestion())
-                .toolNames(allToolNames)
-                .advisors(spec -> spec
-                        .param(ChatMemory.CONVERSATION_ID, request.getSessionId())
-                        .param(AdvisorContextConstants.ENABLE_SKILL, true)
-                        .param(AdvisorContextConstants.USER_ID, "zzw")
+
+        return Flux.fromIterable(Flux.empty().toIterable()) // 空操作，仅用于初始化
+                .thenMany(
+                        openAiChatClient.prompt()
+                                .user(request.getQuestion())
+                                .toolNames(allToolNames)
+                                .advisors(spec -> spec
+                                        .param(ChatMemory.CONVERSATION_ID, request.getSessionId())
+                                        .param(AdvisorContextConstants.ENABLE_SKILL, true)
+                                        .param(AdvisorContextConstants.USER_ID, "zzw")
+                                )
+                                .toolContext(Map.of(
+                                        ChatMemory.CONVERSATION_ID, request.getSessionId(),
+                                        AdvisorContextConstants.USER_ID, "zzw"))
+                                .stream()
+                                .chatResponse()
+                                .map(response -> {
+                                    String text = response.getResult().getOutput().getText();
+                                    // 返回带换行的文本块，便于前端处理
+                                    return text != null ? text : "";
+                                })
                 )
-                .toolContext(Map.of(ChatMemory.CONVERSATION_ID, request.getSessionId(), AdvisorContextConstants.USER_ID, "zzw"))
-                .stream()
-                .chatResponse() // 获取完整的响应对象流
-                .map(response -> {
-                    var output = response.getResult().getOutput();
-
-                    return output.getText();
-                })
-                .doOnError(e -> {
-                    log.error("流式输出异常: {}", e.getMessage());
-                    // 注意：SSE 中无法直接发送带 [ERROR] 前缀的响应，
-                    // 异常会被 Spring 转换为 HTTP 错误响应
-                })
+                .doOnError(e -> log.error("流式输出异常: {}", e.getMessage()))
                 .doOnComplete(() -> log.info("流式输出完成"));
-
-        // 前端需识别以下错误场景：
-        // 1. HTTP 状态码非 2xx - 表示服务端异常
-        // 2. 响应体中的错误前缀（如 data: [ERROR] xxx）
     }
-
 }
