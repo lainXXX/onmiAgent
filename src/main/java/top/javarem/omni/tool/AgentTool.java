@@ -1,4 +1,4 @@
-package top.javarem.onmi.tool;
+package top.javarem.omni.tool;
 
 /**
  * @Author: rem

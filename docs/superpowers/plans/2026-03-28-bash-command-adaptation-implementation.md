@@ -33,6 +33,58 @@ src/test/java/top/javarem/omni/tool/bash/
 
 ---
 
+## Task 0: System Prompt 更新 - 环境感知指导
+
+**Files:**
+- Modify: `src/main/resources/agent_system_prompt.md`
+
+- [ ] **Step 1: 在 `# 使用你的工具` 章节末尾添加 Bash 工具使用规范**
+
+在 `agent_system_prompt.md` 的 `# 使用你的工具` 章节末尾添加：
+
+```markdown
+## Bash 工具使用规范
+
+### 环境感知
+- 执行命令前，确认当前 shell 类型（WSL/Git Bash/原生 Linux）
+- 如果用户提供了 Windows 路径，自动转换为 Unix 路径格式
+- 路径格式：`C:\Users\xxx` → `/c/Users/xxx` 或 `/mnt/c/Users/xxx`
+
+### 命令转换规则
+| Windows CMD | Bash | Windows CMD | Bash |
+|-------------|------|-------------|------|
+| `dir` | `ls -la` | `del` | `rm` |
+| `type` | `cat` | `copy` | `cp` |
+| `move` | `mv` | `mkdir` | `mkdir -p` |
+| `where` | `which` | `set VAR=val` | `export VAR=val` |
+
+### 常见错误处理
+- **错误**：`command not found: dir`
+  **原因**：在 Bash 环境使用了 Windows 命令
+  **修正**：将 `dir` 替换为 `ls`
+
+- **错误**：`No such file or directory: C:\Users`
+  **原因**：在 Bash 环境使用了 Windows 路径
+  **修正**：将 `C:\Users` 转换为 `/c/Users` 或 `/mnt/c/Users`
+
+### 执行流程
+1. 解析用户输入的命令或路径
+2. 如有 Windows 格式，转换为 Unix 格式
+3. 如不确定，先用 `pwd` / `ls` 探测环境
+4. 执行命令
+5. 如失败，观察错误输出，判断是否路径或命令问题
+6. 如需修正，重新生成正确命令重试
+```
+
+- [ ] **Step 2: 提交**
+
+```bash
+git add src/main/resources/agent_system_prompt.md
+git commit -m "feat: add bash tool environment awareness to system prompt"
+```
+
+---
+
 ## Task 1: OsDetector - 操作系统检测
 
 **Files:**
@@ -1300,6 +1352,7 @@ git commit -m "docs(bash): update tool description with cross-platform error det
 
 | Task | 组件 | 状态 |
 |------|------|------|
+| 0 | System Prompt 更新 | ⬜ |
 | 1 | OsDetector | ⬜ |
 | 2 | CommandStyleDetector | ⬜ |
 | 3 | BashErrorClassifier | ⬜ |
@@ -1307,10 +1360,8 @@ git commit -m "docs(bash): update tool description with cross-platform error det
 | 5 | BashExecutor (改造) | ⬜ |
 | 6 | ResponseBuilder (改造) | ⬜ |
 | 7 | BashToolConfig (整合) | ⬜ |
-| 8 | OsDetectorTest | ⬜ |
-| 9 | CommandStyleDetectorTest | ⬜ |
-| 10 | BashErrorClassifierTest | ⬜ |
+| 8-10 | 单元测试 (3个) | ⬜ |
 | 11 | 集成测试 | ⬜ |
 | 12 | 更新工具描述 | ⬜ |
 
-**预计总工期：约 2-3 小时**
+**预计总工期：约 2 小时**

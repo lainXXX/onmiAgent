@@ -1,4 +1,4 @@
-package top.javarem.onmi.model.request;
+package top.javarem.omni.model.request;
 
 import lombok.Data;
 

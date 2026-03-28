@@ -1,4 +1,4 @@
-package top.javarem.onmi.service.rag;
+package top.javarem.omni.service.rag;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.hwpf.HWPFDocument;

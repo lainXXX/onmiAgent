@@ -1,4 +1,4 @@
-package top.javarem.onmi.repository.task;
+package top.javarem.omni.repository.task;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -6,7 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
-import top.javarem.onmi.model.task.TaskEntity;
+import top.javarem.omni.model.task.TaskEntity;
 
 import java.time.LocalDateTime;
 import java.util.*;

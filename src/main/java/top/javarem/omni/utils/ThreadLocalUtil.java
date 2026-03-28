@@ -1,4 +1,4 @@
-package top.javarem.onmi.utils;
+package top.javarem.omni.utils;
 
 import java.util.HashMap;
 import java.util.Map;

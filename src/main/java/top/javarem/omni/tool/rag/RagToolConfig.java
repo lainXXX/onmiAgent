@@ -1,4 +1,4 @@
-package top.javarem.onmi.tool.rag;
+package top.javarem.omni.tool.rag;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -14,9 +14,9 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
-import top.javarem.onmi.service.rag.AdvancedRagEtlService;
-import top.javarem.onmi.tool.AgentTool;
-import top.javarem.onmi.utils.MarkdownUtil;
+import top.javarem.omni.service.rag.AdvancedRagEtlService;
+import top.javarem.omni.tool.AgentTool;
+import top.javarem.omni.utils.MarkdownUtil;
 
 import java.util.*;
 

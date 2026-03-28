@@ -1,4 +1,4 @@
-package top.javarem.onmi.service;
+package top.javarem.omni.service;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -9,9 +9,9 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
-import top.javarem.onmi.config.RerankProperties;
-import top.javarem.onmi.model.rerank.RerankRequest;
-import top.javarem.onmi.model.rerank.RerankResponse;
+import top.javarem.omni.config.RerankProperties;
+import top.javarem.omni.model.rerank.RerankRequest;
+import top.javarem.omni.model.rerank.RerankResponse;
 
 import java.util.ArrayList;
 import java.util.List;

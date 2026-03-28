@@ -1,4 +1,4 @@
-package top.javarem.onmi.config;
+package top.javarem.omni.config;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.ai.chat.client.ChatClient;
@@ -16,7 +16,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import top.javarem.onmi.advisor.*;
+import top.javarem.omni.advisor.*;
 
 import javax.sql.DataSource;
 import java.util.Map;

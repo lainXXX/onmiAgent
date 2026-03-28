@@ -1,4 +1,4 @@
-package top.javarem.onmi.advisor;
+package top.javarem.omni.advisor;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -20,8 +20,8 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
-import top.javarem.onmi.config.ContextCompressionProperties;
-import top.javarem.onmi.repository.chat.MemoryRepository;
+import top.javarem.omni.config.ContextCompressionProperties;
+import top.javarem.omni.repository.chat.MemoryRepository;
 
 import java.math.BigDecimal;
 import java.util.*;

@@ -1,4 +1,4 @@
-package top.javarem.onmi.handler;
+package top.javarem.omni.handler;
 
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
@@ -8,8 +8,8 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.observation.ChatModelObservationContext;
 import org.springframework.stereotype.Component;
-import top.javarem.onmi.model.AgentFinishStatus;
-import top.javarem.onmi.utils.ThreadLocalUtil;
+import top.javarem.omni.model.AgentFinishStatus;
+import top.javarem.omni.utils.ThreadLocalUtil;
 
 import java.util.ArrayList;
 import java.util.List;

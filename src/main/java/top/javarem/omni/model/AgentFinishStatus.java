@@ -1,4 +1,4 @@
-package top.javarem.onmi.model;
+package top.javarem.omni.model;
 
 public enum AgentFinishStatus {
     TOOL_TOOLS("tool_calls"),

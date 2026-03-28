@@ -1,4 +1,4 @@
-package top.javarem.onmi.controller;
+package top.javarem.omni.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;

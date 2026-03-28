@@ -1,4 +1,4 @@
-package top.javarem.onmi.controller;
+package top.javarem.omni.controller;
 
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -7,9 +7,9 @@ import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
-import top.javarem.onmi.model.context.AdvisorContextConstants;
-import top.javarem.onmi.model.request.ChatRequest;
-import top.javarem.onmi.tool.ToolsManager;
+import top.javarem.omni.model.context.AdvisorContextConstants;
+import top.javarem.omni.model.request.ChatRequest;
+import top.javarem.omni.tool.ToolsManager;
 
 import java.util.Map;
 

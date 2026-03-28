@@ -1,4 +1,4 @@
-package top.javarem.onmi.service.rag;
+package top.javarem.omni.service.rag;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -15,10 +15,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
-import top.javarem.onmi.model.rag.EtlProcessReport;
-import top.javarem.onmi.repository.rag.RagChunkRepository;
-import top.javarem.onmi.repository.rag.RagFileRepository;
-import top.javarem.onmi.service.RerankService;
+import top.javarem.omni.model.rag.EtlProcessReport;
+import top.javarem.omni.repository.rag.RagChunkRepository;
+import top.javarem.omni.repository.rag.RagFileRepository;
+import top.javarem.omni.service.RerankService;
 
 import java.io.IOException;
 import java.sql.SQLException;

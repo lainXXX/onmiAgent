@@ -1,4 +1,4 @@
-package top.javarem.onmi.loader;
+package top.javarem.omni.loader;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +15,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 import org.yaml.snakeyaml.Yaml;
-import top.javarem.onmi.model.skill.SkillMetadata;
+import top.javarem.omni.model.skill.SkillMetadata;
 
 import java.io.BufferedReader;
 import java.io.IOException;

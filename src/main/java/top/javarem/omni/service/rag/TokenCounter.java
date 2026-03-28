@@ -1,4 +1,4 @@
-package top.javarem.onmi.service.rag;
+package top.javarem.omni.service.rag;
 
 import com.knuddels.jtokkit.Encodings;
 import com.knuddels.jtokkit.api.Encoding;

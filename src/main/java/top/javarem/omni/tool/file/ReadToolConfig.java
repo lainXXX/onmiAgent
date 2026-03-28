@@ -1,10 +1,10 @@
-package top.javarem.onmi.tool.file;
+package top.javarem.omni.tool.file;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
-import top.javarem.onmi.tool.AgentTool;
+import top.javarem.omni.tool.AgentTool;
 
 import java.io.IOException;
 import java.nio.charset.Charset;

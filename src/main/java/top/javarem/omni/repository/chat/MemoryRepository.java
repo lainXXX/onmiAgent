@@ -1,4 +1,4 @@
-package top.javarem.onmi.repository.chat;
+package top.javarem.omni.repository.chat;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;

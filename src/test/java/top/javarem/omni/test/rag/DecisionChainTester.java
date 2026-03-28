@@ -1,9 +1,9 @@
-package top.javarem.onmi.test.rag;
+package top.javarem.omni.test.rag;
 
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
-import top.javarem.onmi.test.rag.model.GoldenQAPair;
+import top.javarem.omni.test.rag.model.GoldenQAPair;
 
 import java.util.*;
 

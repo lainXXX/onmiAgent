@@ -1,4 +1,4 @@
-package top.javarem.onmi.model.skill;
+package top.javarem.omni.model.skill;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

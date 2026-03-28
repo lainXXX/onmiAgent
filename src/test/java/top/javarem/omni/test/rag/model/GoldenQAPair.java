@@ -1,4 +1,4 @@
-package top.javarem.onmi.test.rag.model;
+package top.javarem.omni.test.rag.model;
 
 import java.util.List;
 

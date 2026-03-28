@@ -1,10 +1,10 @@
-package top.javarem.onmi.repository.rag;
+package top.javarem.omni.repository.rag;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
-import top.javarem.onmi.model.rag.FileRecord;
+import top.javarem.omni.model.rag.FileRecord;
 
 /**
  * RAG 文件仓库 - 管理 kb_file 表

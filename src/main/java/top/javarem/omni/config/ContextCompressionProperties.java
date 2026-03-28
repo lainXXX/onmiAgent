@@ -1,4 +1,4 @@
-package top.javarem.onmi.config;
+package top.javarem.omni.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

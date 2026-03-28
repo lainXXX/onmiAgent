@@ -1,11 +1,11 @@
-package top.javarem.onmi.advisor;
+package top.javarem.omni.advisor;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import top.javarem.onmi.model.task.TaskEntity;
-import top.javarem.onmi.repository.chat.MemoryRepository;
-import top.javarem.onmi.service.task.TaskService;
+import top.javarem.omni.model.task.TaskEntity;
+import top.javarem.omni.repository.chat.MemoryRepository;
+import top.javarem.omni.service.task.TaskService;
 
 import java.util.List;
 import java.util.UUID;

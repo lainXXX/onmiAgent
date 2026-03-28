@@ -1,10 +1,10 @@
-package top.javarem.onmi.tool.file;
+package top.javarem.omni.tool.file;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
-import top.javarem.onmi.tool.AgentTool;
+import top.javarem.omni.tool.AgentTool;
 
 import java.io.IOException;
 import java.nio.file.*;
@@ -213,6 +213,10 @@ public class GlobToolConfig implements AgentTool {
                 case '@':
                 case '%':
                     regex.append("\\").append(c);
+                    break;
+                case '\\':
+                    // Windows 路径中的反斜杠需要转义
+                    regex.append("\\\\");
                     break;
                 default:
                     regex.append(c);

@@ -1,9 +1,9 @@
-package top.javarem.onmi.service.rag;
+package top.javarem.omni.service.rag;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Component;
-import top.javarem.onmi.config.ChunkingProperties;
+import top.javarem.omni.config.ChunkingProperties;
 
 import java.util.ArrayList;
 import java.util.List;

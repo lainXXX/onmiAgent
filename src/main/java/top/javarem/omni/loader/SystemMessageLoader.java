@@ -1,4 +1,4 @@
-package top.javarem.onmi.loader;
+package top.javarem.omni.loader;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;

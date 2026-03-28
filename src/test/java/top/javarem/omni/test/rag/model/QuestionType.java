@@ -1,4 +1,4 @@
-package top.javarem.onmi.test.rag.model;
+package top.javarem.omni.test.rag.model;
 
 /**
  * 问题类型枚举

@@ -1,4 +1,4 @@
-package top.javarem.onmi.tool.rag;
+package top.javarem.omni.tool.rag;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;

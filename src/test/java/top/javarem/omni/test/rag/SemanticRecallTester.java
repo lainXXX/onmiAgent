@@ -1,12 +1,12 @@
-package top.javarem.onmi.test.rag;
+package top.javarem.omni.test.rag;
 
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
-import top.javarem.onmi.test.rag.model.GoldenQAPair;
-import top.javarem.onmi.test.rag.model.TestCaseResult;
+import top.javarem.omni.test.rag.model.GoldenQAPair;
+import top.javarem.omni.test.rag.model.TestCaseResult;
 
 import java.util.*;
 import java.util.stream.Collectors;

@@ -1,4 +1,4 @@
-package top.javarem.onmi.utils;
+package top.javarem.omni.utils;
 
 import java.util.*;
 import java.util.stream.Collectors;

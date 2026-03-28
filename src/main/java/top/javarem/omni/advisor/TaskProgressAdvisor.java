@@ -1,4 +1,4 @@
-package top.javarem.onmi.advisor;
+package top.javarem.omni.advisor;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClientMessageAggregator;
@@ -13,9 +13,9 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
-import top.javarem.onmi.model.task.TaskEntity;
-import top.javarem.onmi.repository.chat.MemoryRepository;
-import top.javarem.onmi.service.task.TaskService;
+import top.javarem.omni.model.task.TaskEntity;
+import top.javarem.omni.repository.chat.MemoryRepository;
+import top.javarem.omni.service.task.TaskService;
 
 import java.util.ArrayList;
 import java.util.List;

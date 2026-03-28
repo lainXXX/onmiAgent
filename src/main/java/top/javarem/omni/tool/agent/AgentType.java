@@ -1,4 +1,4 @@
-package top.javarem.onmi.tool.agent;
+package top.javarem.omni.tool.agent;
 
 import lombok.Getter;
 

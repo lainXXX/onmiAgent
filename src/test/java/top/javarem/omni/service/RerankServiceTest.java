@@ -1,4 +1,4 @@
-package top.javarem.onmi.service;
+package top.javarem.omni.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;

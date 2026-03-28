@@ -1,4 +1,4 @@
-package top.javarem.onmi.model;
+package top.javarem.omni.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.ai.tool.annotation.ToolParam;

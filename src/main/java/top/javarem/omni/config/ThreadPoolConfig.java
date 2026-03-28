@@ -1,4 +1,4 @@
-package top.javarem.onmi.config;
+package top.javarem.omni.config;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;

@@ -1,4 +1,4 @@
-package top.javarem.onmi.exception;
+package top.javarem.omni.exception;
 
 import java.util.List;
 import java.util.UUID;

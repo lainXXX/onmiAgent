@@ -1,4 +1,4 @@
-package top.javarem.onmi.config;
+package top.javarem.omni.config;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;

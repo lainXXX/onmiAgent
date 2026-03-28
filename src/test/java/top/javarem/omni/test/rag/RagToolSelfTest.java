@@ -1,4 +1,4 @@
-package top.javarem.onmi.test.rag;
+package top.javarem.omni.test.rag;
 
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
@@ -7,8 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import top.javarem.onmi.test.rag.model.GoldenQAPair;
-import top.javarem.onmi.test.rag.model.TestCaseResult;
+import top.javarem.omni.test.rag.model.GoldenQAPair;
+import top.javarem.omni.test.rag.model.TestCaseResult;
 
 import java.util.ArrayList;
 import java.util.List;

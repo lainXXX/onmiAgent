@@ -1,4 +1,4 @@
-package top.javarem.onmi.controller;
+package top.javarem.omni.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -10,9 +10,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import top.javarem.onmi.model.rag.EtlProcessReport;
-import top.javarem.onmi.service.rag.AdvancedRagEtlService;
-import top.javarem.onmi.service.rag.CustomDocxReader;
+import top.javarem.omni.model.rag.EtlProcessReport;
+import top.javarem.omni.service.rag.AdvancedRagEtlService;
+import top.javarem.omni.service.rag.CustomDocxReader;
 
 import java.util.List;
 

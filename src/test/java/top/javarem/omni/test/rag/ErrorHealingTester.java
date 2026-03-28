@@ -1,4 +1,4 @@
-package top.javarem.onmi.test.rag;
+package top.javarem.omni.test.rag;
 
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;

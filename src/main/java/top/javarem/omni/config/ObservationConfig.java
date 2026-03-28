@@ -1,9 +1,9 @@
-package top.javarem.onmi.config;
+package top.javarem.omni.config;
 
 import io.micrometer.observation.ObservationRegistry;
 import jakarta.annotation.PostConstruct;
 import org.springframework.context.annotation.Configuration;
-import top.javarem.onmi.handler.LlmCallMonitorObservationHandler;
+import top.javarem.omni.handler.LlmCallMonitorObservationHandler;
 
 @Configuration
 public class ObservationConfig {

@@ -1,10 +1,10 @@
-package top.javarem.onmi.tool;
+package top.javarem.omni.tool;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
-import top.javarem.onmi.model.Option;
+import top.javarem.omni.model.Option;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;

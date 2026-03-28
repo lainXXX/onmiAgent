@@ -1,4 +1,4 @@
-package top.javarem.onmi.tool.web;
+package top.javarem.omni.tool.web;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
@@ -9,7 +9,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
-import top.javarem.onmi.tool.AgentTool;
+import top.javarem.omni.tool.AgentTool;
 
 import java.util.List;
 import java.util.Map;

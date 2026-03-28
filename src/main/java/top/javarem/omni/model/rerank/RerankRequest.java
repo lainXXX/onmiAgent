@@ -1,4 +1,4 @@
-package top.javarem.onmi.model.rerank;
+package top.javarem.omni.model.rerank;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;

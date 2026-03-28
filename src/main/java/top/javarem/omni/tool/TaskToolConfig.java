@@ -1,4 +1,4 @@
-package top.javarem.onmi.tool;
+package top.javarem.omni.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -6,10 +6,10 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
-import top.javarem.onmi.exception.TaskException;
-import top.javarem.onmi.model.context.AdvisorContextConstants;
-import top.javarem.onmi.model.task.TaskEntity;
-import top.javarem.onmi.service.task.TaskService;
+import top.javarem.omni.exception.TaskException;
+import top.javarem.omni.model.context.AdvisorContextConstants;
+import top.javarem.omni.model.task.TaskEntity;
+import top.javarem.omni.service.task.TaskService;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;

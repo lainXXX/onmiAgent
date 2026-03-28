@@ -1,8 +1,8 @@
-package top.javarem.onmi.test.rag;
+package top.javarem.omni.test.rag;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import top.javarem.onmi.test.rag.model.TestCaseResult;
+import top.javarem.omni.test.rag.model.TestCaseResult;
 
 import java.io.FileWriter;
 import java.io.IOException;

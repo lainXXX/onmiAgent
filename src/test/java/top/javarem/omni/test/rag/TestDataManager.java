@@ -1,8 +1,8 @@
-package top.javarem.onmi.test.rag;
+package top.javarem.omni.test.rag;
 
 import org.springframework.stereotype.Component;
-import top.javarem.onmi.test.rag.model.GoldenQAPair;
-import top.javarem.onmi.test.rag.model.QuestionType;
+import top.javarem.omni.test.rag.model.GoldenQAPair;
+import top.javarem.omni.test.rag.model.QuestionType;
 
 import java.util.ArrayList;
 import java.util.List;

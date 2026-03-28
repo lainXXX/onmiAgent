@@ -1,4 +1,4 @@
-package top.javarem.onmi.model.context;
+package top.javarem.omni.model.context;
 
 public final class AdvisorContextConstants {
 

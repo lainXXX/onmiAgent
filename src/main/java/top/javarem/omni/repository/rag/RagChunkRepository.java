@@ -1,4 +1,4 @@
-package top.javarem.onmi.repository.rag;
+package top.javarem.omni.repository.rag;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -9,7 +9,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
-import top.javarem.onmi.model.rag.ParentChunkRecord;
+import top.javarem.omni.model.rag.ParentChunkRecord;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;

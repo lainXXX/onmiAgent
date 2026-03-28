@@ -1,4 +1,4 @@
-package top.javarem.onmi.tool.rag;
+package top.javarem.omni.tool.rag;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

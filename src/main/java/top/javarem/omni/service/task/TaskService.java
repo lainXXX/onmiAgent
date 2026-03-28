@@ -1,10 +1,10 @@
-package top.javarem.onmi.service.task;
+package top.javarem.omni.service.task;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import top.javarem.onmi.exception.TaskException;
-import top.javarem.onmi.model.task.TaskEntity;
-import top.javarem.onmi.repository.task.TaskRepository;
+import top.javarem.omni.exception.TaskException;
+import top.javarem.omni.model.task.TaskEntity;
+import top.javarem.omni.repository.task.TaskRepository;
 
 import java.time.LocalDateTime;
 import java.util.*;

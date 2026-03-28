@@ -1,4 +1,4 @@
-package top.javarem.onmi.model.skill;
+package top.javarem.omni.model.skill;
 
 /**
      * 技能候选

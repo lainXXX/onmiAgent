@@ -82,7 +82,27 @@ The chat system uses Spring AI's Advisor pattern to process requests/responses i
 | `file/` | ReadToolConfig, WriteToolConfig, EditToolConfig, GrepToolConfig, GlobToolConfig |
 | `web/` | WebSearchToolConfig, WebFetchToolConfig |
 | `rag/` | RagToolConfig |
-| root | BashToolConfig, SkillToolConfig, AskUserToolConfig, TaskManagementTool, AgentTool |
+| `bash/` | BashToolConfig with security architecture (DangerousPatternValidator, SuicideCommandDetector, CommandApprover, ProcessTreeKiller) |
+| root | SkillToolConfig, AskUserToolConfig, TaskToolConfig, AgentTool, ToolsManager |
+
+#### Agent Subsystem (`tool/agent/`)
+
+- `AgentToolConfig` - Tool configuration for agent execution
+- `AgentSessionManager` - Manages agent conversation sessions
+- `WorktreeManager` - Git worktree isolation for agent tasks
+- `AgentTaskRegistry` - Tracks running agent tasks
+- `SubAgentChatClientFactory` - Factory for creating sub-agent chat clients
+- `AgentType` - Enum defining agent types (CODER, REVIEWER, etc.)
+
+#### Bash Security Architecture
+
+The `bash/` package implements multi-layer command safety:
+
+- `DangerousPatternValidator` - Regex-based pattern matching for dangerous commands
+- `SuicideCommandDetector` - Detects commands that could destroy the system (rm -rf, fork bombs, etc.)
+- `CommandApprover` - Central approval gate for bash execution
+- `ProcessTreeKiller` - Cleans up process trees on timeout/termination
+- `PathApprovalService` - Manages approved execution paths
 
 ### RAG Service (`service/rag/`)
 
@@ -106,7 +126,7 @@ Handles chat history persistence:
 
 ### Key Dependencies
 
-- Spring Boot 3.5.10 + Spring AI 1.0.0
+- Spring Boot 3.5.10 + Spring AI 1.1.3 (BOM managed)
 - Java 21
 - pgvector (vector embeddings)
 - Apache Tika + POI (document parsing)

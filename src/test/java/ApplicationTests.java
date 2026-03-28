@@ -3,9 +3,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import top.javarem.skillDemo.Application;
-import top.javarem.skillDemo.loader.SkillLoader;
-import top.javarem.skillDemo.controller.ChatController;
+import top.javarem.omni.Application;
+import top.javarem.omni.loader.SkillLoader;
+import top.javarem.omni.controller.ChatController;
 
 import static org.junit.jupiter.api.Assertions.*;
 

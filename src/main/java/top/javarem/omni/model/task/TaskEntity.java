@@ -1,4 +1,4 @@
-package top.javarem.onmi.model.task;
+package top.javarem.omni.model.task;
 
 import java.time.LocalDateTime;
 import java.util.List;

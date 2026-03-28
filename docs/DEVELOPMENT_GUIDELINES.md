@@ -186,13 +186,11 @@ if (activeCount == 0) {
 ### 4.1 测试类结构
 
 ```java
-package top.javarem.skillDemo.xxx;
+package top.javarem.omni.xxx;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 

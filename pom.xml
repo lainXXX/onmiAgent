@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -13,7 +13,7 @@
     <artifactId>omniAgent</artifactId>
     <version>1.0-SNAPSHOT</version>
     <name>omniAgent</name>
-    <description>Your personal AI Agent — omni-capable, locally running, built for developers who think in systems.</description>
+    <description>Your personal AI Agent 鈥?omni-capable, locally running, built for developers who think in systems.</description>
     <url>https://github.com/LainXXX/omniAgent</url>
     <licenses>
         <license>
@@ -28,7 +28,7 @@
         </developer>
     </developers>
     <!-- Maven Central is included by default in Maven builds.
-         You usually don’t need to configure it explicitly,
+         You usually don鈥檛 need to configure it explicitly,
          but it's shown here for clarity. -->
     <repositories>
         <repository>
@@ -61,7 +61,7 @@
         <dependency>
             <groupId>com.knuddels</groupId>
             <artifactId>jtokkit</artifactId>
-            <version>1.1.0</version> <!-- 目前最稳定常用的版本 -->
+            <version>1.1.0</version> <!-- 鐩墠鏈€绋冲畾甯哥敤鐨勭増鏈?-->
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -75,7 +75,7 @@
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
-            <version>2.9.1</version> <!-- 请使用最新版本 -->
+            <version>2.9.1</version> <!-- 璇蜂娇鐢ㄦ渶鏂扮増鏈?-->
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
@@ -112,7 +112,7 @@
         </dependency>
         <dependency>
             <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-tracing-bridge-brave</artifactId> <!-- 或者 bridge-otel -->
+            <artifactId>micrometer-tracing-bridge-brave</artifactId> <!-- 鎴栬€?bridge-otel -->
         </dependency>
         <dependency>
             <groupId>org.jsoup</groupId>
@@ -124,24 +124,24 @@
             <artifactId>poi-ooxml</artifactId>
             <version>5.2.5</version>
             <exclusions>
-                <!-- 防止污染 commons-io -->
+                <!-- 闃叉姹℃煋 commons-io -->
                 <exclusion>
                     <groupId>commons-io</groupId>
                     <artifactId>commons-io</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- 用于解析老版本 .doc 格式 -->
+        <!-- 鐢ㄤ簬瑙ｆ瀽鑰佺増鏈?.doc 鏍煎紡 -->
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-scratchpad</artifactId>
-            <version>5.2.3</version> <!-- 必须与你当前的 poi-ooxml 版本一致 -->
+            <version>5.2.3</version> <!-- 蹇呴』涓庝綘褰撳墠鐨?poi-ooxml 鐗堟湰涓€鑷?-->
         </dependency>
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-minimax</artifactId>
         </dependency>
-        <!-- 解析 Word(docx), PPT, Excel 等复杂文档必备 (基于 Apache Tika) -->
+        <!-- 瑙ｆ瀽 Word(docx), PPT, Excel 绛夊鏉傛枃妗ｅ繀澶?(鍩轰簬 Apache Tika) -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-tika-document-reader</artifactId>

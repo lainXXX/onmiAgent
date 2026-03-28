@@ -1,4 +1,4 @@
-package top.javarem.onmi.tool.rag;
+package top.javarem.omni.tool.rag;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;

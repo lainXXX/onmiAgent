@@ -1,4 +1,4 @@
-package top.javarem.onmi.model.rag;
+package top.javarem.omni.model.rag;
 
 import lombok.Data;
 
