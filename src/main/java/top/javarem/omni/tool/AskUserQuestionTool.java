@@ -33,33 +33,45 @@ public class AskUserQuestionTool implements AgentTool {
      * @return 用户的回答，超时或跳过有特殊标记
      */
     @Tool(name = "AskUserQuestion", description = """
-            Ask the user a question and wait for their response.
+            Use this tool when you need to ask the user questions during execution. This allows you to:
 
-            Use this tool when you need to:
-            - Collect user preferences or requirements
-            - Clarify ambiguous instructions
-            - Confirm a technical approach before proceeding
-            - Present multiple options for the user to choose from
+            1. Gather user preferences or requirements.
+            2. Clarify ambiguous instructions.
+            3. Get decisions on implementation choices as you work.
+            4. Offer choices to the user about what direction to take.
 
-            The user will see your question(s) with options and can:
-            - Select one or more options (depending on multiSelect setting)
-            - Choose "Other" to provide custom text input
-            - Skip the question (which will terminate the agent)
+            Usage Notes:
+            - Custom Input: Users will always be able to select "Other" to provide custom text input.
+            - Multiple Selections: Use multiSelect: true to allow multiple answers to be selected for a question.
+            - Recommendations: If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label.
 
+            Plan Mode Note:
+            In plan mode, use this tool to clarify requirements or choose between approaches BEFORE finalizing your plan.
+            - DO NOT use this tool to ask "Is my plan ready?" or "Should I proceed?" — use ExitPlanMode for plan approval.
+            - IMPORTANT: Do not reference "the plan" in your questions (e.g., "Do you have feedback about the plan?", "Does the plan look good?") because the user cannot see the plan in the UI until you call ExitPlanMode. If you need plan approval, use ExitPlanMode instead.
+
+            Preview Feature:
+            Use the optional preview field on options when presenting concrete artifacts that users need to visually compare:
+            - ASCII mockups of UI layouts or components
+            - Code snippets showing different implementations
+            - Diagram variations
+            - Configuration examples
+
+            Formatting & UI:
+            - Preview content is rendered as markdown in a monospace box. Multi-line text with newlines is supported.
+            - When any option has a preview, the UI switches to a side-by-side layout with a vertical option list on the left and preview on the right.
+            - Constraint: Do not use previews for simple preference questions where labels and descriptions suffice.
+            - Constraint: Previews are only supported for single-select questions (not multiSelect).
+
+            Response:
             You will receive a response containing:
             - answers: Map of question text to selected option label
             - annotations: Optional notes and preview content selected by user
             - timeout: true if user did not respond in time
             - skipReason: reason if user chose to skip
-
-            Important constraints:
-            - Ask only 1-4 questions at a time
-            - For single-select questions, you can include preview content (code snippets, ASCII art)
-            - multiSelect=true questions do not support preview
-            - In Plan mode, this tool can only clarify requirements, not ask for plan approval
             """)
     public CompletableFuture<AskUserResponse> askUserQuestion(
-            @ToolParam(description = "问题请求，包含 1~4 个问题")
+            @ToolParam(description = "Question request containing 1~4 questions")
             AskUserQuestionRequest request) {
 
         log.info("[AskUserQuestion] Tool called with {} question(s)", request.questions().size());
