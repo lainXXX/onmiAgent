@@ -1,0 +1,55 @@
+package top.javarem.omni.tool.bash;
+
+import org.springframework.stereotype.Component;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+@Component
+public class PathNormalizer {
+
+    private final String workspace;
+
+    public PathNormalizer(String workspace) {
+        this.workspace = normalize(workspace);
+    }
+
+    public String normalize(String pathStr) {
+        if (pathStr == null || pathStr.isBlank()) return "";
+        try {
+            Path normalized = Paths.get(pathStr).normalize();
+            return normalized.toString().replace("\\", "/");
+        } catch (Exception e) {
+            return pathStr.replace("\\", "/");
+        }
+    }
+
+    public void validate(String command) {
+        String[] words = command.split("[\\s]+");
+        for (String word : words) {
+            if (word.contains("/") || word.contains("\\")) {
+                validatePath(word);
+            }
+        }
+    }
+
+    private void validatePath(String pathCandidate) {
+        try {
+            String normalized = normalize(pathCandidate);
+
+            Path resolved = Paths.get(normalized).toAbsolutePath().normalize();
+            Path workspacePath = Paths.get(workspace).toAbsolutePath().normalize();
+
+            String resolvedStr = resolved.toString().replace("\\", "/");
+            String workspaceStr = workspacePath.toString().replace("\\", "/");
+
+            if (!resolvedStr.startsWith(workspaceStr + "/") && !resolvedStr.equals(workspaceStr)) {
+                throw new SecurityException("禁止访问 WORKSPACE 之外的路径: " + pathCandidate);
+            }
+        } catch (SecurityException e) {
+            throw e;
+        } catch (Exception e) {
+            // Path parsing failed — allow it (will be caught by shell)
+        }
+    }
+}
