@@ -2,3 +2,5 @@
 /.claude/
 /target/
 /-p/
+/.playwright-mcp/
+/scripts/

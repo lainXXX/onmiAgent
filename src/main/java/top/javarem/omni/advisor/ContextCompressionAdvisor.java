@@ -14,6 +14,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -33,7 +34,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ContextCompressionAdvisor implements CallAdvisor, StreamAdvisor {
 
-    private final ChatClient contextCompressionClient;
+    private final ChatModel chatModel;
 
     private final ContextCompressionProperties properties;
 
@@ -63,8 +64,8 @@ public class ContextCompressionAdvisor implements CallAdvisor, StreamAdvisor {
             - Output ONLY the raw, updated summary content.
             """;
 
-    public ContextCompressionAdvisor(@Qualifier("contextCompressionClient") ChatClient contextCompressionClient, ContextCompressionProperties properties, ThreadPoolExecutor threadPoolExecutor, MemoryRepository memoryRepository, VectorStore vectorStore) {
-        this.contextCompressionClient = contextCompressionClient;
+    public ContextCompressionAdvisor(@Qualifier("minimaxChatModel") ChatModel chatModel, ContextCompressionProperties properties, ThreadPoolExecutor threadPoolExecutor, MemoryRepository memoryRepository, VectorStore vectorStore) {
+        this.chatModel = chatModel;
         this.properties = properties;
         this.threadPoolExecutor = threadPoolExecutor;
         this.memoryRepository = memoryRepository;
@@ -176,13 +177,13 @@ public class ContextCompressionAdvisor implements CallAdvisor, StreamAdvisor {
      */
     private String summarize(List<Message> messages) {
         messages.add(0, new SystemMessage(summarySystemPrompt));
-        return contextCompressionClient
+        return ChatClient.builder(chatModel).build()
                 .prompt()
                 .messages(messages)
                 .options(OpenAiChatOptions.builder()
                         // 设置低温度，输出结果稳定
-                        .temperature(0.2)
-                        .maxTokens(1024)
+                        .temperature(0.1)
+//                        .maxTokens(1200)
                         .build())
                 .call()
                 .content();

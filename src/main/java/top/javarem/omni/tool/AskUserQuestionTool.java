@@ -29,7 +29,6 @@ public class AskUserQuestionTool implements AgentTool {
     /**
      * 向用户提问并等待回答
      *
-     * @param request 问题请求，包含 1~4 个问题
      * @return 用户的回答，超时或跳过有特殊标记
      */
     @Tool(name = "AskUserQuestion", description = """

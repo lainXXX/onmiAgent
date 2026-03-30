@@ -2,7 +2,10 @@ package top.javarem.omni.loader;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,6 +24,9 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -42,6 +48,8 @@ public class SkillLoader {
     private final JdbcTemplate pgVectorJdbcTemplate;
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final ChatModel chatModel;
+
 
     // 可变前缀
     @Value("${skill.discovery.root:classpath:/}")
@@ -55,28 +63,49 @@ public class SkillLoader {
     @Value("${skill.discovery.enabled:true}")
     private boolean enabled;
 
+    // Skills Guide 生成配置
+    @Value("${skill.guide.enabled:true}")
+    private boolean guideEnabled;
+
+    @Value("${skill.guide.output-path:${skill.discovery.root}}")
+    private String guideOutputPath;
+
     public String skillsDescription = """
                 <system-reminder>
                 
                 The following skills are available for use with the Skill tool:
                               
-                
-                <skill_descriptions>
                 %s
-                </skill_descriptions>
                 
                 When replying or executing tasks, please prioritize referring to and applying the norms and suggestions listed in the aforementioned skill inventory.
                 
+                <SUBAGENT-STOP>
+                    If you are assigned to perform a specific task, skip this skill.
+                </SUBAGENT-STOP>
+                            
+                <EXTREMELY-IMPORTANT>
+                    If you think there is even a 1% chance that a certain skill will be applied to what you are doing, you absolutely must use that skill.
+                    
+                    If a certain skill is applicable to your task, you have no choice. You must use it.
+                    
+                    This is non-negotiable. It's not optional. You can't use rationality to evade all of this.
+                    
+                    The instructions state "what to do" rather than "how to do it". "Adding X" or "correcting Y" does not mean skipping the workflow.
+                </EXTREMELY-IMPORTANT>
                 </system-reminder>
                 """;
 
-    public SkillLoader(ResourceLoader resourceLoader, VectorStore vectorStore, @Qualifier("pgVectorJdbcTemplate")JdbcTemplate pgVectorJdbcTemplate, ObjectMapper objectMapper) {
+    public SkillLoader(ResourceLoader resourceLoader, VectorStore vectorStore,
+                       @Qualifier("pgVectorJdbcTemplate") JdbcTemplate pgVectorJdbcTemplate,
+                       ObjectMapper objectMapper,
+                       @Qualifier("minimaxChatModel") ChatModel chatModel) {
         this.resourcePatternResolver = ResourcePatternUtils.getResourcePatternResolver(resourceLoader);
         this.namedParameterJdbcTemplate = new NamedParameterJdbcTemplate(pgVectorJdbcTemplate);
         this.vectorStore = vectorStore;
         this.objectMapper = objectMapper;
         this.yaml = new Yaml();
         this.pgVectorJdbcTemplate = pgVectorJdbcTemplate;
+        this.chatModel = chatModel;
     }
 
     public String getSkillsDescription() {
@@ -95,6 +124,7 @@ public class SkillLoader {
 
         // 统计计数器
         int[] stats = {0, 0, 0, 0}; // 新增、更新内容、更新路径、清理
+        List<SkillMetadata> skillMetadataList = new ArrayList<>(); // 收集解析后的 SkillMetadata
 
         try {
             // 1. 加载数据库全量快照
@@ -120,6 +150,7 @@ public class SkillLoader {
                     log.warn("跳过解析失败的文件: {}", r.getFilename());
                     continue;
                 }
+                skillMetadataList.add(localMeta);
                 sb.append("- ").append(localMeta.getName()).append(": ").append(localMeta.getDescription()).append("\n");
 
 
@@ -155,7 +186,7 @@ public class SkillLoader {
 //                    stats[0]++;
 //                }
             }
-            skillsDescription = skillsDescription.formatted(sb.toString());
+            skillsDescription = skillsDescription.replace("%s", escapePercent(sb.toString()));
 
 //            // 3. 清理：本地已删除的技能
 //            if (!dbSnapshot.isEmpty()) {
@@ -177,6 +208,130 @@ public class SkillLoader {
         } catch (Exception e) {
             log.error("技能发现流程异常", e);
         }
+
+        // 生成 Skills Guide
+        if (guideEnabled && !skillMetadataList.isEmpty()) {
+            generateSkillsGuideIfNeeded(skillMetadataList);
+        }
+    }
+
+    /**
+     * 计算所有 Skills 的内容哈希
+     */
+    private String computeSkillsHash(List<SkillMetadata> skills) {
+        StringBuilder sb = new StringBuilder();
+        for (SkillMetadata skill : skills) {
+            sb.append(skill.getName()).append(skill.getDescription());
+        }
+        return DigestUtils.md5DigestAsHex(sb.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * 生成期望的 Guide 文件名
+     */
+    private String computeGuideFileName(String hash) {
+        return "skills_guide_" + hash.substring(0, 8) + ".md";
+    }
+
+    /**
+     * 检查并生成 Skills Guide
+     */
+    private void generateSkillsGuideIfNeeded(List<SkillMetadata> skills) {
+        try {
+            // 1. 计算哈希
+            String hash = computeSkillsHash(skills);
+            String fileName = computeGuideFileName(hash);
+            String outputDir = guideOutputPath.replace("file:", "");
+
+            // 2. 检查文件是否存在
+            Path guideFile = Path.of(outputDir, fileName);
+            if (Files.exists(guideFile)) {
+                log.debug("[SkillsGuide] Guide 文件已存在，跳过: {}", guideFile);
+                return;
+            }
+
+            // 3. 调用 LLM 生成 Guide
+            log.info("[SkillsGuide] 开始生成 Guide: {}, Skill 数量={}", guideFile, skills.size());
+            String guideContent = generateSkillsGuide(skills);
+
+            // 4. 保存文件
+            if (guideContent == null || guideContent.isBlank()) {
+                log.warn("[SkillsGuide] LLM 返回为空，跳过保存");
+                return;
+            }
+            Files.writeString(guideFile, guideContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            log.info("[SkillsGuide] Guide 生成成功: {}", guideFile);
+
+        } catch (Exception e) {
+            log.error("[SkillsGuide] Guide 生成失败", e);
+        }
+    }
+
+    /**
+     * 调用 LLM 生成 Skills Guide
+     */
+    private String generateSkillsGuide(List<SkillMetadata> skills) {
+        StringBuilder skillList = new StringBuilder();
+        for (SkillMetadata skill : skills) {
+            skillList.append("- **").append(skill.getName()).append("**: ")
+                    .append(skill.getDescription()).append("\n");
+        }
+
+        String systemPrompt = """
+                你是一个 Agent 逻辑编译器。任务是将动态工具集（Skills）编译为极高密度、零底噪的系统指令 `<system-reminder>`。
+                            
+                【编译器法则】(违反则逻辑崩溃)：
+                1. 标识符死律：【绝对禁止】修改、翻译或缩写 Skill ID。必须字符级匹配（如 `subagent-driven-development`）。
+                2. 语法范式：
+                   - 触发器：`IF [精准条件] THEN MUST [SKILL_ID]`
+                   - 链路：`SCENARIO: ID1 -> ID2 -> ID3`
+                   - 回退：`ID [FAIL] -> RECOVERY_ID`
+                3. 拓扑推演：基于描述自动校准为 [Explore -> Plan -> Execute -> Verify] 的单向流。
+                4. 结构约束：仅允许使用最外层 `<system-reminder>` 和内部 `<EXTREMELY-IMPORTANT>` 标签。禁止列表符或方括号 `[]`、圆括号 `()` 或任何包裹符号解释性后缀。
+                            
+                【标准输出模板】
+                <system-reminder>
+                # ORCHESTRATION-LOGIC
+                [IF/THEN 映射]
+                            
+                # GOLDEN-CHAINS
+                [全生命周期链路]
+                            
+                <EXTREMELY-IMPORTANT>
+                # FALLBACK-STRATEGY
+                [FAIL 状态机]
+                # BOUNDARY-LOGIC
+                [易混淆 Skill 辨析]
+                </EXTREMELY-IMPORTANT>
+                </system-reminder>
+            """;
+
+        String userPrompt = """
+                请编译以下动态 Skill 列表，生成满足【编译器法则】的 `<system-reminder>`。
+                            
+                【本次任务指标】：
+                1. 覆盖率：提取所有 Skill 的 Hard Triggers。
+                2. 深度：推导至少 3 条覆盖“调研到收尾”的完整 GOLDEN-CHAINS。
+                3. 鲁棒性：计算 `verification-before-completion` 返回 FAIL 后的回退路径。
+                            
+                【动态 Skill 列表】：
+                %s
+                            
+                【指令】：
+                直接输出 `<system-reminder>` 内容，严禁思考过程泄漏。
+
+            """.formatted(skillList);
+
+            return ChatClient.builder(chatModel).build()
+                    .prompt()
+                    .system(systemPrompt)
+                    .user(userPrompt)
+                    .options(OpenAiChatOptions.builder()
+                            .temperature(0.2)
+//                            .maxTokens(1024)
+                            .build())
+                    .call()
+                    .content();
     }
 
     /**
@@ -231,6 +386,16 @@ public class SkillLoader {
     private String escapeFilter(String input) {
         if (input == null) return "";
         return input.replace("'", "''");
+    }
+
+    /**
+     * 转义百分号，防止 String.formatted() 解析失败
+     */
+    private String escapePercent(String input) {
+        if (input == null) return "";
+        // 转义 % 为 %%，但保留已经是格式说明符的 %s, %d, %f 等
+        // 使用负向后瞻：匹配 % 后面不是有效转换符的情况
+        return input.replaceAll("%(?![0-9$+\\-#,.<(]?[a-zA-Z])", "%%");
     }
 
     /**
@@ -396,12 +561,12 @@ public class SkillLoader {
          * SQL 查询语句
          *
          * 为什么不用IN条件而是做skill全量加载？
-         * 1. 解决“僵尸数据”问题（物理删除同步）
+         * 1. 解决"僵尸数据"问题（物理删除同步）
          *
          * 如果你使用 IN (:localNames) 查询：
          *  - 数据库只会返回本地还存在的技能。
          *  - 如果昨天你删除了 old-skill.md，今天的 IN 查询结果里根本不会出现 old-skill。
-         *  - 结果：数据库里的 old-skill 永远无法被清理掉，变成“僵尸数据”。
+         *  - 结果：数据库里的 old-skill 永远无法被清理掉，变成"僵尸数据"。
          *
          * 如果你使用 全量加载：
          *  - 你会拿到数据库里所有的技能。

@@ -155,7 +155,7 @@ public class AskUserQuestionService {
     private void pushSseEvent(String questionId, AskUserQuestionRequest request) {
         SseEmitter emitter = sseEmitters.get(questionId);
         if (emitter == null) {
-            log.debug("[AskUserQuestion] 无 SSE emitter，问题 {} 已存入轮询队列", questionId);
+            log.info("[AskUserQuestion] 无 SSE emitter，问题 {} 已存入轮询队列，前端可通过 /api/questions/pending 获取", questionId);
             return;
         }
 

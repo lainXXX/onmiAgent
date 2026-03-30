@@ -48,7 +48,7 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
     protected ChatClientRequest doInitializeLoop(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
         // 保存用户消息
         String conversationId = (String) chatClientRequest.context().get(ChatMemory.CONVERSATION_ID);
-        String userId = (String) chatClientRequest.context().get("userId");
+        String userId = (String) chatClientRequest.context().get(AdvisorContextConstants.USER_ID);
         memoryRepository.saveAll(conversationId, userId, List.of(chatClientRequest.prompt().getUserMessage()));
         chatHistoryRepository.saveUserMessage(conversationId, null, chatClientRequest.prompt().getUserMessage().getText());
         return super.doInitializeLoop(chatClientRequest, callAdvisorChain);
@@ -59,16 +59,13 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
     // ==========================================
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
-        // 创建一个“信使”对象存入 Map。就算后续 Map 被复制，信使的引用也不会变。
-        AtomicReference<List<Message>> historyHolder = new AtomicReference<>(new ArrayList<>());
-        request.context().put(TOOL_HISTORY_HOLDER, historyHolder);
 
         // 调用父类，让 Spring AI 去跑那个恶心的 do-while 循环
         ChatClientResponse response = super.adviseCall(request, chain);
 
         // 循环彻底结束后，直接从信使里拿数据！绝对能拿到！
         request.context().put(AdvisorContextConstants.TOOL_CALL_PHASE, AdvisorContextConstants.Phase.COMPLETED);
-        storeMessage(response, request.context(), historyHolder.get());
+        storeAssistantMessage(response, request.context());
 
         return response;
     }
@@ -76,7 +73,7 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
     @Override
     protected ChatClientRequest doInitializeLoopStream(ChatClientRequest chatClientRequest, StreamAdvisorChain streamAdvisorChain) {
         String conversationId = (String) chatClientRequest.context().get(ChatMemory.CONVERSATION_ID);
-        String userId = (String) chatClientRequest.context().get("userId");
+        String userId = (String) chatClientRequest.context().get(AdvisorContextConstants.USER_ID);
         chatHistoryRepository.saveUserMessage(conversationId, null, chatClientRequest.prompt().getUserMessage().getText());
         memoryRepository.saveAll(conversationId, userId, List.of(chatClientRequest.prompt().getUserMessage()));
         return super.doInitializeLoopStream(chatClientRequest, streamAdvisorChain);
@@ -102,7 +99,7 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
         // 这样 completeResponse 包含完整聚合后的响应
         return aggregator.aggregateChatClientResponse(flux, completeResponse -> {
             request.context().put(AdvisorContextConstants.TOOL_CALL_PHASE, AdvisorContextConstants.Phase.COMPLETED);
-            storeMessage(completeResponse, request.context(), historyHolder.get());
+            storeAssistantMessage(completeResponse, request.context());
         });
     }
 
@@ -116,11 +113,7 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
                                                              ToolExecutionResult result) {
         List<Message> messages = super.doGetNextInstructionsForToolCall(request, response, result);
 
-        // 获取信使，并更新里面的数据
-        Object holder = request.context().get(TOOL_HISTORY_HOLDER);
-        if (holder instanceof AtomicReference ref) {
-            ref.set(result.conversationHistory());
-        }
+        saveToolExecutionHistory(request, result);
 
         return messages;
     }
@@ -135,20 +128,31 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
                                                                    ToolExecutionResult result) {
         List<Message> messages = super.doGetNextInstructionsForToolCallStream(request, response, result);
 
-        // 获取信使，并更新里面的数据
-        Object holder = request.context().get(TOOL_HISTORY_HOLDER);
-        if (holder instanceof AtomicReference ref) {
-            ref.set(result.conversationHistory());
-        }
+        saveToolExecutionHistory(request, result);
 
         return messages;
     }
 
-    // ==========================================
-    // 4. 纯粹的存储逻辑（与外层解耦）
-    // ==========================================
-    private void storeMessage(ChatClientResponse response, Map<String, Object> context, List<Message> history) {
-        if (response == null || response.chatResponse() == null || history == null || history.isEmpty()) return;
+    private void saveToolExecutionHistory(ChatClientRequest request, ToolExecutionResult result) {
+        Object sessionIdObj = request.context().get(AdvisorContextConstants.SESSION_ID);
+        Object userIdObj = request.context().get(AdvisorContextConstants.USER_ID);
+
+        // 安全获取变量，防止空指针
+        String sessionId = sessionIdObj != null ? sessionIdObj.toString() : null;
+        String userId = userIdObj != null ? userIdObj.toString() : null;
+
+        var history = result.conversationHistory();
+        int size = history.size();
+
+        if (sessionId != null && size >= 2) {
+            // 截取最后两条并映射转换 (通常是一条 Assistant 的 ToolCall，一条 ToolResultMessage)
+            List<Message> toolMessage = history.subList(size - 2, size);
+            memoryRepository.saveAll(sessionId, userId, toolMessage);
+        }
+    }
+
+    private void storeAssistantMessage(ChatClientResponse response, Map<String, Object> context) {
+        if (response == null || response.chatResponse() == null) return;
 
         try {
             // 校验是否正常结束
@@ -156,40 +160,22 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
             if (!AgentFinishStatus.STOP.equals(AgentFinishStatus.from(finishReason))) {
                 return;
             }
-            // 找到最后一个用户消息的索引
-            int lastUserIdx = -1;
-            for (int i = history.size() - 1; i >= 0; i--) {
-                if (history.get(i) instanceof UserMessage) {
-                    lastUserIdx = i;
-                    break;
-                }
-            }
 
-            // 截取从那个索引之后的所有消息
-            List<Message> toolInteractionMessages = history.subList(lastUserIdx + 1, history.size());
-
-            // 获取最终的模型文本输出并追加（创建干净副本，避免 metadata 污染后续对话）
-            if (!response.chatResponse().getResults().isEmpty()) {
-                AssistantMessage originalAssistant = response.chatResponse().getResults().get(0).getOutput();
-                if (originalAssistant.getText() != null && !originalAssistant.getText().isEmpty()) {
-                    AssistantMessage cleanAssistant = new AssistantMessage(originalAssistant.getText());
-                    toolInteractionMessages.add(cleanAssistant);
-                }
-            }
+            if (response.chatResponse().getResults().isEmpty()) return;
+            AssistantMessage assistantMessage = response.chatResponse().getResults().get(0).getOutput();
+            if (assistantMessage.getText() == null || assistantMessage.getText().isEmpty()) return;;
 
             String conversationId = context.get(ChatMemory.CONVERSATION_ID).toString();
-            String userId = context.get("userId").toString();
-            if (conversationId != null && !toolInteractionMessages.isEmpty()) {
-                this.threadPoolExecutor.execute(() -> {
-                    try {
-                        chatHistoryRepository.saveAssistantMessage(conversationId, null, userId, toolInteractionMessages.get(toolInteractionMessages.size() - 1).getText());
-                        memoryRepository.saveAll(conversationId, userId, toolInteractionMessages);
-                        log.info("🎯 工具调用记忆存储成功，ID: {}, 共 {} 条消息", conversationId, toolInteractionMessages.size());
-                    } catch (Exception e) {
-                        log.error("数据库写入失败", e);
-                    }
-                });
-            }
+            String userId = context.get(AdvisorContextConstants.USER_ID).toString();
+            log.info("[保存大模型输出内容] conversationId={}, userId={}, text={}", conversationId, userId);
+            this.threadPoolExecutor.execute(() -> {
+                try {
+                    chatHistoryRepository.saveAssistantMessage(conversationId, null, userId, assistantMessage.getText());
+                    memoryRepository.save(conversationId, userId, assistantMessage);
+                } catch (Exception e) {
+                    log.error("数据库写入失败", e);
+                }
+            });
         } catch (Exception e) {
             log.error("解析工具调用历史发生异常", e);
         }

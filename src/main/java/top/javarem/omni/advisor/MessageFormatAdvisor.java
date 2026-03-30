@@ -51,6 +51,14 @@ public class MessageFormatAdvisor implements BaseAdvisor {
         if (toolsMessage != null) {
             messages.add(new UserMessage(toolsMessage));
         }
+        String skillsGuide = systemMessageLoader.loadSkillsGuide();
+        if (skillsGuide != null) {
+            messages.add(new UserMessage(skillsGuide));
+        }
+        String toolsGuide = systemMessageLoader.loadTools();
+        if (toolsGuide != null) {
+            messages.add(new UserMessage(toolsGuide));
+        }
         // 2.获取提醒消息
         if ((boolean) request.context().get(AdvisorContextConstants.ENABLE_SKILL)) {
             UserMessage skillMessage = new UserMessage(skillLoader.getSkillsDescription());

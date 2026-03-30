@@ -5,7 +5,9 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.minimax.MiniMaxChatModel;
+import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiEmbeddingModel;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
@@ -32,16 +34,21 @@ public class AiConfig {
 
 
 
+    @Bean("minimaxChatModel") // 这里的名字必须和 Qualifier 一致
+    public ChatModel minimaxChatModel(MiniMaxChatModel miniMaxChatModel) {
+        return miniMaxChatModel;
+    }
+
     /**
      * OpenAI ChatClient
      */
     @Bean
     @Primary
-    public ChatClient openAiChatClient(MiniMaxChatModel openAiChatModel,
-                                        MessageFormatAdvisor messageFormatAdvisor,
-                                        ContextCompressionAdvisor contextCompressionAdvisor,
-                                        LifecycleToolCallAdvisor lifecycleToolCallAdvisor,
-                                        TaskProgressAdvisor taskProgressAdvisor
+    public ChatClient openAiChatClient(OpenAiChatModel openAiChatModel,
+                                       MessageFormatAdvisor messageFormatAdvisor,
+                                       ContextCompressionAdvisor contextCompressionAdvisor,
+                                       LifecycleToolCallAdvisor lifecycleToolCallAdvisor,
+                                       TaskProgressAdvisor taskProgressAdvisor
                                        ) {    // 注入
         return ChatClient.builder(openAiChatModel)
                 // 🚀 设置默认工具上下文，防止工具因缺少上下文而崩溃
@@ -62,20 +69,14 @@ public class AiConfig {
                 .build();
     }
 
-    @Bean
-    public ChatClient contextCompressionClient(MiniMaxChatModel openAiChatModel) {    // 注入
-        return ChatClient.builder(openAiChatModel)
-                .build();
-    }
-
-    @Bean
-    public ChatMemory chatMemory(JdbcChatMemoryRepository jdbcRepo) {
-        // 创建一个滑动窗口记忆：使用 Postgres 存储，保留最近 20 条消息
-        return MessageWindowChatMemory.builder()
-                .chatMemoryRepository(jdbcRepo)
-                .maxMessages(1000)
-                .build();
-    }
+//    @Bean
+//    public ChatMemory chatMemory(JdbcChatMemoryRepository jdbcRepo) {
+//        // 创建一个滑动窗口记忆：使用 Postgres 存储，保留最近 20 条消息
+//        return MessageWindowChatMemory.builder()
+//                .chatMemoryRepository(jdbcRepo)
+//                .maxMessages(1000)
+//                .build();
+//    }
 
     /**
      * 为 PgVector 创建专用的数据源

@@ -176,7 +176,7 @@ public class TaskProgressAdvisor implements BaseAdvisor {
             // 获取所有现有消息
             List<Message> allMessages = new ArrayList<>(request.prompt().getInstructions());
 
-            // 在消息列表最前面插入提醒消息
+            // 在消息列表最后面插入提醒消息
             allMessages.add(reminderMessage);
 
             // 使用messages()方法重建prompt
@@ -200,7 +200,7 @@ public class TaskProgressAdvisor implements BaseAdvisor {
     private String buildReminder(String userId, String sessionId, int execRounds) {
         StringBuilder sb = new StringBuilder();
 
-        sb.append("<reminder>\n");
+        sb.append("<system_reminder>\n");
 
         // 获取进行中的任务
         List<TaskEntity> inProgressTasks = taskService.list(userId, sessionId, TaskEntity.STATUS_IN_PROGRESS, 1, 10);
@@ -217,7 +217,7 @@ public class TaskProgressAdvisor implements BaseAdvisor {
 
         sb.append("请调用 TaskList 查看完整任务列表。\n");
         sb.append("请调用 TaskUpdate 汇报进度或完成任务，再继续执行。\n");
-        sb.append("</reminder>\n\n");
+        sb.append("system_reminder\n\n");
 
         return sb.toString();
     }

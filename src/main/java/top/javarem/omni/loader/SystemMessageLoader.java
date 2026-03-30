@@ -53,4 +53,14 @@ public class SystemMessageLoader {
         }
     }
 
+    @Value("classpath:skills_guide_f7a66173.md")
+    private Resource skillsGuide;
+
+    public String loadSkillsGuide() {
+        try {
+            return skillsGuide.getContentAsString(StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return "";
+        }
+    }
 }

@@ -218,6 +218,18 @@ public class GlobToolConfig implements AgentTool {
                     // Windows 路径中的反斜杠需要转义
                     regex.append("\\\\");
                     break;
+                case '{':
+                    // 处理 glob  brace expansion {a,b,c} -> (a|b|c)
+                    regex.append("(?:");
+                    break;
+                case '}':
+                    // brace 结束
+                    regex.append(")");
+                    break;
+                case ',':
+                    // brace 内部的分隔符
+                    regex.append("|");
+                    break;
                 default:
                     regex.append(c);
             }

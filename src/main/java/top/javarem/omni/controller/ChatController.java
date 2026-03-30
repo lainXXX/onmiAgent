@@ -11,6 +11,7 @@ import top.javarem.omni.model.context.AdvisorContextConstants;
 import top.javarem.omni.model.request.ChatRequest;
 import top.javarem.omni.tool.ToolsManager;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -63,7 +64,7 @@ public class ChatController {
         log.info("[STREAM] 用户问题：{}", request.getQuestion());
         String[] allToolNames = toolsManager.getAllToolNames().toArray(new String[0]);
 
-        return Flux.fromIterable(Flux.empty().toIterable()) // 空操作，仅用于初始化
+        return Flux.fromIterable(List.of(allToolNames)) // 空操作，仅用于初始化
                 .thenMany(
                         openAiChatClient.prompt()
                                 .user(request.getQuestion())
@@ -79,6 +80,9 @@ public class ChatController {
                                 .stream()
                                 .chatResponse()
                                 .map(response -> {
+                                    if (response.getResult() == null || response.getResult().getOutput() == null) {
+                                        return "";
+                                    }
                                     String text = response.getResult().getOutput().getText();
                                     // 返回带换行的文本块，便于前端处理
                                     return text != null ? text : "";

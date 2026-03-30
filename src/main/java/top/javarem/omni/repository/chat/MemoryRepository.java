@@ -1,5 +1,6 @@
 package top.javarem.omni.repository.chat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.*;
@@ -8,6 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import top.javarem.omni.utils.MessageConvert;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -19,8 +21,11 @@ public class MemoryRepository {
 
     private final JdbcTemplate jdbcTemplate;
 
-    public MemoryRepository(@Qualifier("mysqlJdbcTemplate") JdbcTemplate jdbcTemplate) {
+    private final ObjectMapper objectMapper;
+
+    public MemoryRepository(@Qualifier("mysqlJdbcTemplate") JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
     }
 
     // ==================== 聊天记忆表 chat_memory 操作 ====================
@@ -182,7 +187,7 @@ public class MemoryRepository {
                 ps.setString(1, conversationId);
                 ps.setString(2, userId);
                 ps.setString(3, message.getMessageType().name());
-                ps.setString(4, extractContent(message));
+                ps.setString(4, MessageConvert.convertMessage(message));
             }
 
             @Override
@@ -190,6 +195,11 @@ public class MemoryRepository {
                 return messages.size();
             }
         });
+    }
+
+    public void save(String conversationId, String userId, Message message) {
+        String sql = "INSERT INTO chat_memory (conversation_id, user_id, role, content) VALUES (?, ?, ?, ?)";
+        jdbcTemplate.update(sql, conversationId, userId, message.getMessageType().name(), MessageConvert.convertMessage(message));
     }
 
     // ==================== 工具方法 ====================
@@ -204,22 +214,6 @@ public class MemoryRepository {
             case "SYSTEM" -> new SystemMessage(content != null ? content : "");
             default -> new UserMessage(content != null ? content : "");
         };
-    }
-
-    /**
-     * 从 Message 中提取可存储的文本内容
-     */
-    private String extractContent(Message message) {
-        if (message == null) return "";
-
-        if (message instanceof ToolResponseMessage t) return t.getResponses().toString();
-        if (message instanceof AssistantMessage a) {
-            if (!a.getToolCalls().isEmpty()) {
-                return a.getToolCalls().toString();
-            }
-            return a.getText() != null ? a.getText() : "";
-        }
-        return message.getText() != null ? message.getText() : "";
     }
 
     // ==================== 内部类 ====================

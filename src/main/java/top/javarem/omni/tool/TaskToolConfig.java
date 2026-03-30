@@ -47,29 +47,58 @@ public class TaskToolConfig implements AgentTool {
     // ==================== CreateTask ====================
 
     @Tool(name = "TaskCreate", description = """
-            Create a structured task for your current coding session. Helps track progress, organize complex tasks, and demonstrate thoroughness.
+            ## 批量调用规则（必须遵守）
+            遇到多个任务时，**必须为每个任务单独调用一次此工具**：
+            - ✓ 用户列出多项："帮我完成 A、B、C" → 每个任务调用 1 次
+            - ✓ 用户说"需要做这几件事" → 每个任务调用 1 次
+            - ✓ 任务可拆分为多个独立子目标 → 每个子目标调用 1 次
+            - ✗ 不要尝试在单次调用中创建"多个任务"
 
-            ## When to Use
-            - Complex multi-step tasks (3+ distinct steps)
-            - Non-trivial tasks requiring careful planning
-            - After receiving new instructions
-            - When starting work on a task
+            使用此工具为当前编码会话创建结构化任务列表。这有助于跟踪进度、组织复杂任务，并向用户展示工作的彻底性。同时帮助用户了解任务进度及请求的整体完成情况。
 
-            ## When NOT to Use
-            - Single, straightforward task
-            - Task completable in less than 3 trivial steps
-            - Purely conversational or informational
-
-            ## Task Fields
-            - subject: Brief, actionable title in imperative mood (e.g., "Fix authentication bug")
-            - description: Detailed requirements, context and acceptance criteria
-            - activeForm: Progress description shown in UI loading animation
-            - metadata: Additional key-value pairs
+            ## 何时使用此工具
+                        
+            在以下场景中主动使用此工具：
+                        
+            - **复杂的多步任务**：当一个任务需要 3 个或更多独特步骤或动作时。
+            - **非琐碎且复杂的任务**：需要仔细规划或多次操作的任务。
+            - **计划模式（Plan mode）**：在使用计划模式时，创建任务列表以跟踪工作。
+            - **用户明确要求**：当用户直接要求你使用待办事项列表（todo list）时。
+            - **用户提供多个任务**：当用户提供了一系列需要完成的事情（编号或逗号分隔）时。
+            - **接收到新指令后**：立即将用户需求捕获为任务。
+            - **开始执行任务时**：在开始工作**之前**，将任务标记为 `in_progress`。
+            - **完成任务后**：将任务标记为 `completed`，并添加在实现过程中发现的任何新后续任务。
+                        
+            ## 何时不要使用此工具
+                        
+            在以下情况下跳过使用此工具：
+                        
+            - 只有单一、简单的任务。
+            - 任务过于琐碎，跟踪它无法带来组织上的收益。
+            - 任务可以在少于 3 个简单步骤内完成。
+            - 任务纯粹是对话性或信息性的。
+                        
+            **注意：** 如果只有一个琐碎的任务，请不要使用此工具。在这种情况下，直接完成任务效果更好。
+                        
+            ## 任务字段详解
+                        
+            - **subject (主题)**：简短、可操作的标题，使用祈使句（例如："修复登录流程中的身份验证 Bug"）。
+            - **description (描述)**：详细说明需要完成的工作，包括上下文和验收标准。
+            - **activeForm (进行态，可选)**：当任务处于 `in_progress` 状态时，加载动画中显示的现在进行时形式（例如："正在修复身份验证 Bug"）。如果省略，加载动画将显示 `subject`。
+                        
+            所有任务在创建时初始状态均为 `pending`（待处理）。
+                        
+            ## 使用技巧
+                        
+            - **明确具体**：创建具有清晰、具体主题的任务，描述预期的结果。
+            - **细节详尽**：在描述中包含足够的细节，以便另一个智能体（Agent）能够理解并完成该任务。
+            - **管理依赖**：创建任务后，如果需要，使用 `TaskUpdate` 设置依赖关系（blocks/blockedBy）。
+            - **避免重复**：在创建任务前先检查 `TaskList`，以避免创建重复任务。
             """)
     public String taskCreate(
             @ToolParam(description = "简短、具体的标题，建议使用祈使句，如 'Fix authentication bug'") String subject,
             @ToolParam(description = "详细说明需要执行的操作、上下文及验收标准") String description,
-            @ToolParam(description = "任务进行时在 UI（如加载动画）中显示的进行时描述", required = false) String activeForm,
+            @ToolParam(description = "任务进行时中显示的进行时描述", required = false) String activeForm,
             @ToolParam(description = "附加的任意元数据（键值对格式）", required = false) Map<String, Object> metadata,
             ToolContext toolContext
             ) {
