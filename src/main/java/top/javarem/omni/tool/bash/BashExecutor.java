@@ -14,7 +14,6 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Bash 命令执行器
@@ -103,12 +102,9 @@ public class BashExecutor {
         StringBuilder output = new StringBuilder();
         ExecutorService readerExecutor = Executors.newSingleThreadExecutor();
 
-        AtomicReference<BufferedReader> readerRef = new AtomicReference<>();
-
         Future<?> readerFuture = readerExecutor.submit(() -> {
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream(), charset))) {
-                readerRef.set(reader);
                 String line;
                 while ((line = reader.readLine()) != null) {
                     output.append(line).append("\n");
@@ -134,7 +130,7 @@ public class BashExecutor {
         } catch (TimeoutException | ExecutionException e) {
             // Ignore — process already done
         } finally {
-            readerExecutor.shutdown();
+            readerExecutor.shutdownNow();
             processRegistry.unregister(pid);
         }
 

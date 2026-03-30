@@ -35,8 +35,12 @@ public class ProcessTreeKiller {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
             Process killProcess = pb.start();
-            killProcess.waitFor(BashConstants.KILL_WAIT_SECONDS, TimeUnit.SECONDS);
-        } catch (Exception ignored) {
+            boolean completed = killProcess.waitFor(BashConstants.KILL_WAIT_SECONDS, TimeUnit.SECONDS);
+            if (!completed) {
+                log.warn("[ProcessTreeKiller] Kill command did not complete: {}", String.join(" ", command));
+            }
+        } catch (Exception e) {
+            log.warn("[ProcessTreeKiller] Failed to execute kill command: {} - {}", String.join(" ", command), e.getMessage());
         }
     }
 }

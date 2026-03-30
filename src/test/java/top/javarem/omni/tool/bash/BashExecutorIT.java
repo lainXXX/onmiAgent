@@ -32,7 +32,7 @@ class BashExecutorIT {
             return;
         }
         String result = executor.execute("echo 'out' && echo 'err' >&2", 10000);
-        assertTrue(result.contains("out") || result.contains("err"), "stderr should be merged");
+        assertTrue(result.contains("out") && result.contains("err"), "stderr should be merged, both out and err must be present");
     }
 
     @Test
