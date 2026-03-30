@@ -35,4 +35,19 @@ class ManagedProcessTest {
         );
         assertEquals(ManagedProcess.ProcessState.RUNNING, mp.state());
     }
+
+    @Test
+    void shouldNotTransitionFromKilledState() {
+        ManagedProcess mp = new ManagedProcess(
+            "999", ProcessHandle.current(), "sleep 10", "sleep",
+            Instant.now(), ManagedProcess.ProcessState.RUNNING, false
+        );
+
+        mp.transitionTo(ManagedProcess.ProcessState.KILLED);
+        assertEquals(ManagedProcess.ProcessState.KILLED, mp.state());
+
+        // Should NOT transition to TERMINATED — KILLED is terminal
+        mp.transitionTo(ManagedProcess.ProcessState.TERMINATED);
+        assertEquals(ManagedProcess.ProcessState.KILLED, mp.state());
+    }
 }

@@ -43,7 +43,8 @@ public final class ManagedProcess {
 
     public void transitionTo(ProcessState newState) {
         synchronized (stateLock) {
-            if (this.state == ManagedProcess.ProcessState.KILLED) return;
+            if (this.state == ManagedProcess.ProcessState.KILLED
+                    || this.state == ManagedProcess.ProcessState.TERMINATED) return;
             this.state = newState;
         }
     }
