@@ -1,72 +1,120 @@
 package top.javarem.omni.tool.bash;
 
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Bash 命令执行器
+ *
+ * <p>集成了安全拦截、进程注册、ProcessHandle 生命周期管理、
+ * 线程池执行、字符集处理和 stderr 合并。</p>
  */
 @Component
 @Slf4j
 public class BashExecutor {
 
-    private final ResponseFormatter formatter;
-    private final ProcessTreeKiller processKiller;
+    @Autowired
+    private ProcessRegistry processRegistry;
 
-    public BashExecutor(ResponseFormatter formatter) {
-        this.formatter = formatter;
-        this.processKiller = new ProcessTreeKiller();
-    }
+    @Autowired
+    private SecurityInterceptor securityInterceptor;
 
-    /**
-     * 后台执行命令
-     * @return 包含 PID 的结果
-     */
-    public String executeBackground(String command) throws Exception {
-        ProcessBuilder builder = new ProcessBuilder();
-        configureProcessBuilder(builder, command);
-        builder.directory(new File(BashConstants.WORKSPACE));
-        builder.redirectErrorStream(true);
+    @Resource
+    private ResponseFormatter formatter;
 
-        Process process = builder.start();
-        log.info("[BashExecutor] 后台进程已启动: PID={}", process.pid());
+    private final ProcessTreeKiller processKiller = new ProcessTreeKiller();
 
-        return String.format("✅ 后台命令已启动\n\nPID: %d\n命令: %s", process.pid(), command);
+    @Autowired(required = false)
+    private ThreadPoolTaskExecutor taskExecutor;
+
+    private volatile String detectedShell;
+    private volatile boolean shellDetected = false;
+
+    @PostConstruct
+    public void init() {
+        detectBash();
     }
 
     /**
      * 执行命令（同步等待结果）
      */
     public String execute(String command, long timeoutMs) throws Exception {
+        SecurityInterceptor.CheckResult check = securityInterceptor.check(command);
+        switch (check.type()) {
+            case DENY:
+                return formatter.formatError("安全拦截: " + check.message(), -1);
+            case PENDING:
+                return formatter.formatPending(check.ticketId(), check.message());
+            case ALLOW:
+                break;
+        }
+        return doExecute(command, timeoutMs, false);
+    }
+
+    /**
+     * 后台执行命令
+     */
+    public String executeBackground(String command) throws Exception {
+        SecurityInterceptor.CheckResult check = securityInterceptor.check(command);
+        if (check.type() == SecurityInterceptor.CheckResult.Type.DENY) {
+            return formatter.formatError("安全拦截: " + check.message(), -1);
+        }
+        if (check.type() == SecurityInterceptor.CheckResult.Type.PENDING) {
+            return formatter.formatPending(check.ticketId(), check.message());
+        }
+        return doExecute(command, 0, true);
+    }
+
+    private String doExecute(String command, long timeoutMs, boolean background) throws Exception {
         ProcessBuilder builder = new ProcessBuilder();
         configureProcessBuilder(builder, command);
         builder.directory(new File(BashConstants.WORKSPACE));
         builder.redirectErrorStream(true);
 
         Process process = builder.start();
-        log.debug("[BashExecutor] 进程已启动: PID={}", process.pid());
+        String pid = String.valueOf(process.pid());
+        log.info("[BashExecutor] Process started: PID={} cmd={}", pid, command);
 
+        if (background) {
+            ManagedProcess mp = new ManagedProcess(pid, process.toHandle(), command, "",
+                    Instant.now(), ManagedProcess.ProcessState.RUNNING, true);
+            processRegistry.register(mp);
+            return formatter.formatBackgroundStarted(pid, command);
+        }
+
+        ManagedProcess mp = new ManagedProcess(pid, process.toHandle(), command, "",
+                Instant.now(), ManagedProcess.ProcessState.RUNNING, false);
+        processRegistry.register(mp);
+
+        Charset charset = detectCharset();
         StringBuilder output = new StringBuilder();
-        ExecutorService executor = Executors.newSingleThreadExecutor();
+        ExecutorService readerExecutor = Executors.newSingleThreadExecutor();
 
-        String encoding = System.getProperty("sun.jnu.encoding", "GBK");
-        Charset charset = Charset.forName(encoding);
+        AtomicReference<BufferedReader> readerRef = new AtomicReference<>();
 
-        Future<?> readerFuture = executor.submit(() -> {
+        Future<?> readerFuture = readerExecutor.submit(() -> {
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream(), charset))) {
+                readerRef.set(reader);
                 String line;
                 while ((line = reader.readLine()) != null) {
                     output.append(line).append("\n");
                 }
             } catch (Exception e) {
-                log.warn("[BashExecutor] 读取输出失败", e);
+                log.warn("[BashExecutor] Output reading failed", e);
             }
         });
 
@@ -76,18 +124,21 @@ public class BashExecutor {
         if (!finished) {
             processKiller.kill(process);
             readerFuture.cancel(true);
-            log.warn("[BashExecutor] 命令超时: {} ms, command={}", timeoutMs, command);
+            processRegistry.kill(pid);
+            log.warn("[BashExecutor] Command timeout: {}ms cmd={}", timeoutMs, command);
             return formatter.formatTimeout(rawOutput, timeoutMs);
         }
 
         try {
             readerFuture.get(1, TimeUnit.SECONDS);
         } catch (TimeoutException | ExecutionException e) {
-            // 忽略
+            // Ignore — process already done
+        } finally {
+            readerExecutor.shutdown();
+            processRegistry.unregister(pid);
         }
 
         int exitCode = process.exitValue();
-
         if (exitCode == 0) {
             return formatter.formatSuccess(rawOutput);
         } else {
@@ -96,11 +147,72 @@ public class BashExecutor {
     }
 
     private void configureProcessBuilder(ProcessBuilder builder, String command) {
-        String os = System.getProperty("os.name", "").toLowerCase();
-        if (os.contains("windows")) {
+        String shell = detectBash();
+        if (shell.equals("sh")) {
+            builder.command("sh", "-c", command);
+        } else if (shell.equals("bash")) {
+            builder.command("bash", "-c", command);
+        } else if (shell.equals("cmd")) {
             builder.command("cmd", "/c", command);
         } else {
-            builder.command("sh", "-c", command);
+            builder.command(shell, "-c", command);
+        }
+    }
+
+    private synchronized String detectBash() {
+        if (shellDetected) {
+            return detectedShell;
+        }
+        String os = System.getProperty("os.name", "").toLowerCase();
+        if (!os.contains("windows")) {
+            detectedShell = "sh";
+            shellDetected = true;
+            return detectedShell;
+        }
+
+        try {
+            ProcessBuilder testBuilder = new ProcessBuilder("bash", "-c", "echo test");
+            testBuilder.redirectErrorStream(true);
+            Process test = testBuilder.start();
+            if (test.waitFor(3, TimeUnit.SECONDS) && test.exitValue() == 0) {
+                detectedShell = "bash";
+                shellDetected = true;
+                log.info("[BashExecutor] Detected global bash");
+                return detectedShell;
+            }
+        } catch (Exception e) {
+            // fall through
+        }
+
+        String[][] gitBashPaths = {
+                {"C:\\Program Files\\Git\\bin\\bash.exe", "Git Bash (默认)"},
+                {System.getProperty("user.home") + "\\AppData\\Local\\Programs\\Git\\bin\\bash.exe", "Git Bash (用户)"},
+        };
+        for (String[] pathAndDesc : gitBashPaths) {
+            File bash = new File(pathAndDesc[0]);
+            if (bash.exists()) {
+                detectedShell = bash.getAbsolutePath();
+                shellDetected = true;
+                log.info("[BashExecutor] Detected {}: {}", pathAndDesc[1], detectedShell);
+                return detectedShell;
+            }
+        }
+
+        detectedShell = "cmd";
+        shellDetected = true;
+        log.warn("[BashExecutor] No bash found, falling back to cmd");
+        return detectedShell;
+    }
+
+    private Charset detectCharset() {
+        Charset detected = Charset.defaultCharset();
+        if (StandardCharsets.UTF_8.equals(detected) || StandardCharsets.ISO_8859_1.equals(detected)) {
+            return detected;
+        }
+        try {
+            return StandardCharsets.UTF_8;
+        } catch (Exception e) {
+            return detected;
         }
     }
 }
