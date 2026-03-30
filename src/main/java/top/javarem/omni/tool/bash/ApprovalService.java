@@ -16,6 +16,7 @@ public class ApprovalService {
 
     private static final long TTL_MINUTES = 5;
     private static final long CONSUMED_TTL_MINUTES = 1;
+    private static final long SCHEDULER_INTERVAL_MINUTES = 1;
 
     private final ConcurrentHashMap<String, ApprovalEntry> tickets = new ConcurrentHashMap<>();
     private final ScheduledExecutorService cleanupScheduler = Executors.newSingleThreadScheduledExecutor(
@@ -36,12 +37,20 @@ public class ApprovalService {
                 if (entry.approved() != null && entry.timestamp() < consumedCutoff) return true;
                 return false;
             });
-        }, 1, 1, TimeUnit.MINUTES);
+        }, SCHEDULER_INTERVAL_MINUTES, SCHEDULER_INTERVAL_MINUTES, TimeUnit.MINUTES);
     }
 
     @PreDestroy
     public void shutdown() {
         cleanupScheduler.shutdown();
+        try {
+            if (!cleanupScheduler.awaitTermination(10, TimeUnit.SECONDS)) {
+                cleanupScheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            cleanupScheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     public CheckResult createPendingTicket(String command) {

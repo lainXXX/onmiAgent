@@ -37,7 +37,12 @@ public class PathNormalizer {
         try {
             String normalized = normalize(pathCandidate);
 
-            Path resolved = Paths.get(normalized).toAbsolutePath().normalize();
+            Path resolved;
+            if (normalized.startsWith("./") || normalized.startsWith("../") || !normalized.contains("/")) {
+                resolved = Paths.get(workspace, normalized).toAbsolutePath().normalize();
+            } else {
+                resolved = Paths.get(normalized).toAbsolutePath().normalize();
+            }
             Path workspacePath = Paths.get(workspace).toAbsolutePath().normalize();
 
             String resolvedStr = resolved.toString().replace("\\", "/");

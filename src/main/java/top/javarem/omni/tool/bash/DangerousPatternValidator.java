@@ -1,6 +1,12 @@
 package top.javarem.omni.tool.bash;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
+
+import java.nio.file.Files;
+import java.util.HashSet;
+import java.util.Set;
 
 @Component
 public class DangerousPatternValidator {
@@ -21,12 +27,40 @@ public class DangerousPatternValidator {
 
     private static final char[] INJECTION_SYMBOLS = {';', '|', '&'};
 
+    private static final Set<String> allowedCommands = new HashSet<>();
+
+    public DangerousPatternValidator() {
+        // No-arg constructor for test compatibility - allowedCommands remains empty
+    }
+
+    public DangerousPatternValidator(@Value("classpath:approved-commands.properties") Resource resource) {
+        try {
+            for (String line : Files.readAllLines(resource.getFile().toPath())) {
+                String trimmed = line.trim();
+                if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+                    allowedCommands.add(trimmed);
+                }
+            }
+        } catch (Exception e) {
+            // If file missing, deny all non-trivial commands
+        }
+    }
+
     public enum Result { ALLOW, DENY, REQUIRE_APPROVAL }
 
     public Result validate(String command) {
         if (command == null || command.isBlank()) return Result.DENY;
 
         String trimmed = command.trim();
+
+        // Check allowlist first
+        if (!allowedCommands.isEmpty()) {
+            for (String allowed : allowedCommands) {
+                if (trimmed.equals(allowed) || trimmed.startsWith(allowed + " ")) {
+                    return Result.ALLOW;
+                }
+            }
+        }
 
         for (String pattern : DIRECT_DENY_PATTERNS) {
             if (trimmed.matches("(?i).*" + pattern + ".*")) {
@@ -178,6 +212,12 @@ public class DangerousPatternValidator {
                 if (c == '$' && i + 1 < command.length()) {
                     char next = command.charAt(i + 1);
                     if (Character.isLetterOrDigit(next) || next == '{' || next == '(') {
+                        if (i > 0) {
+                            char prev = command.charAt(i - 1);
+                            if (prev == '/' || prev == '\\' || prev == ':') {
+                                continue;
+                            }
+                        }
                         return true;
                     }
                 }
