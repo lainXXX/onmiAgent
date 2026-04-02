@@ -201,13 +201,6 @@ public class AskUserQuestionService {
     }
 
     /**
-     * 根据 questionId 获取问题详情
-     */
-    public PendingQuestion getQuestion(String questionId) {
-        return pendingQuestions.get(questionId);
-    }
-
-    /**
      * 获取所有待回答的问题
      */
     public java.util.List<PendingQuestion> getAllPendingQuestions() {
