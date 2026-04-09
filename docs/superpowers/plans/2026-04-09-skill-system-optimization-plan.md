@@ -29,6 +29,19 @@ src/main/java/top/javarem/omni/
 │   └── SkillExecutor.java             # 新建 - P1
 └── tool/
     └── SkillToolConfig.java           # 重构 - P0
+
+### SkillLoader 集成说明
+
+现有 `SkillLoader` 负责：
+- 启动时扫描 skills 目录
+- 向量存储（vectorStore）写入
+- Skills Guide 生成
+
+新增 `SkillDiscovery` 负责：
+- 运行时按需发现单个 Skill
+- Frontmatter 完整解析
+
+两者职责互补，`SkillLoader` 的向量存储能力不在本次优化范围内。
 ```
 
 ---
@@ -136,9 +149,18 @@ public record SkillFrontmatter(
 
     /**
      * 检查是否仅包含安全属性
+     * 安全属性：指不涉及危险操作的只读属性
+     * 当前实现：仅当 allowedTools 非空且 disableModelInvocation 为 true 时视为不安全
      */
     public boolean hasOnlySafeProperties() {
-        // 简化实现：默认返回 true，后续可扩展
+        // 有 allowedTools 但禁用了模型调用 = 不安全
+        if (disableModelInvocation && allowedTools != null && !allowedTools.isEmpty()) {
+            return false;
+        }
+        // 有自定义 hooks = 需要进一步检查
+        if (hooks != null && !hooks.isEmpty()) {
+            return false;
+        }
         return true;
     }
 
@@ -546,6 +568,9 @@ public class SkillDiscovery {
     @Value("${skill.discovery.sources.project.enabled:false}")
     private boolean projectEnabled;
 
+    @Value("${skill.discovery.sources.managed.enabled:true}")
+    private boolean managedEnabled;
+
     // 缓存已发现的 Skill
     private final Map<String, DiscoveredSkill> skillCache = new ConcurrentHashMap<>();
 
@@ -579,12 +604,21 @@ public class SkillDiscovery {
                 continue;
             }
 
-            Path path = buildPath(source, normalizedName);
-            if (path != null && Files.exists(path)) {
-                DiscoveredSkill discovered = parseSkill(source, path);
+            // BUNDLED 使用 ResourcePatternResolver，其他使用 Files.exists()
+            if (source == SkillSource.BUNDLED) {
+                DiscoveredSkill discovered = discoverBundled(normalizedName);
                 if (discovered != null) {
                     skillCache.put(normalizedName, discovered);
                     return discovered;
+                }
+            } else {
+                Path path = buildPath(source, normalizedName);
+                if (path != null && Files.exists(path)) {
+                    DiscoveredSkill discovered = parseSkill(source, path);
+                    if (discovered != null) {
+                        skillCache.put(normalizedName, discovered);
+                        return discovered;
+                    }
                 }
             }
         }
@@ -624,8 +658,24 @@ public class SkillDiscovery {
     }
 
     /**
-     * 解析 Skill 文件
+     * 使用 ResourcePatternResolver 发现 BUNDLED 资源
      */
+    private DiscoveredSkill discoverBundled(String skillName) {
+        String pattern = "classpath:/skills/" + skillName + "/SKILL.md";
+        try {
+            org.springframework.core.io.Resource[] resources =
+                resourcePatternResolver.getResources(pattern);
+            if (resources.length > 0) {
+                Path path = resources[0].getFile().toPath();
+                return parseSkill(SkillSource.BUNDLED, path);
+            }
+        } catch (Exception e) {
+            log.debug("[SkillDiscovery] BUNDLED 发现失败: pattern={}", pattern, e);
+        }
+        return null;
+    }
+
+    /**
     private DiscoveredSkill parseSkill(SkillSource source, Path path) {
         try {
             String content = Files.readString(path, StandardCharsets.UTF_8);
@@ -727,18 +777,23 @@ public class SkillDiscovery {
             case BUNDLED -> bundledEnabled;
             case USER -> userEnabled;
             case PROJECT -> projectEnabled;
-            case MANAGED -> true;
+            case MANAGED -> managedEnabled;
         };
     }
 
     private Path buildPath(SkillSource source, String skillName) {
         String root = skillRootPath.replace("${user.home}", System.getProperty("user.home"));
+        // 确保 root 末尾有 /
+        if (!root.endsWith("/")) {
+            root += "/";
+        }
 
         return switch (source) {
-            case BUNDLED -> Paths.get(bundledPath.replace("classpath:", ""), skillName, "SKILL.md");
+            // BUNDLED 使用 discoverBundled() 方法，不走此路径
             case USER -> Paths.get(root, "skills", skillName, "SKILL.md");
             case PROJECT -> Paths.get(".claude/skills", skillName, "SKILL.md");
             case MANAGED -> Paths.get(root, ".claude/skills", skillName, "SKILL.md");
+            default -> null;
         };
     }
 
@@ -1360,12 +1415,14 @@ git commit -m "refactor(skill): refactor SkillToolConfig with new components"
 # Skill 系统配置
 skill:
   discovery:
-    root: file:${user.home}/.omni
+    root: file:${user.home}/.omni/
     path: skills/**/SKILL.md
     sources:
       bundled:
         enabled: true
         path: classpath:/skills/
+      managed:
+        enabled: true
       user:
         enabled: true
       project:
