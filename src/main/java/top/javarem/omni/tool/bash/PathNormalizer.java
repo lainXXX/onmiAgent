@@ -1,5 +1,6 @@
 package top.javarem.omni.tool.bash;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -10,7 +11,7 @@ public class PathNormalizer {
 
     private final String workspace;
 
-    public PathNormalizer(String workspace) {
+    public PathNormalizer(@Value("${agent.working-directory:${user.dir}}") String workspace) {
         this.workspace = normalize(workspace);
     }
 
