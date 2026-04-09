@@ -158,20 +158,7 @@ logging:
     # SkillActivationAdvisor 日志
 #    top.javarem.skillDemo.advisor: DEBUG
 
-# Skill 配置
-skill:
-  discovery:
-    enabled: true
-    root: file:${user.home}/.omni/
-    path: skills/**/SKILL.md
-  guide:
-    enabled: true
-    output-path: file:${user.home}/.omni/skills/
-  activation:
-    #向量相似度阈值
-    vector-threshold: 0.2
-    #返回 Top K
-    top-k: 5
+# Skill 配置 (已迁移到文件末尾统一管理)
 
 # RAG 递归分块配置
 rag:
