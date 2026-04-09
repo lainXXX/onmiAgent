@@ -1,0 +1,253 @@
+server:
+  port: 9090
+  tomcat:
+    mbeanregistry:
+      enabled: true
+    max-connections: 200
+    threads:
+      max: 150        # 设定处理客户请求的线程的最大数目，决定了服务器可以同时响应客户请求的数,默认200
+      min-spare: 50   # 初始化线程数,最小空闲线程数,默认是10
+    accept-count: 10  # 等待队列长度
+    max-swallow-size: -1
+
+spring:
+  jackson:
+    parser:
+      allow_unquoted_control_chars: true
+      # 关键配置：允许处理不合规的反斜杠转义
+      allow_backslash_escaping_any_character: true
+  main:
+    allow-bean-definition-overriding: true
+  datasource:
+    username: root
+    password: root
+    url: jdbc:mysql://localhost:3306/rem-agent?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=true
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 2
+      idle-timeout: 30000
+      connection-timeout: 30000
+  ai:
+    chat:
+      # 禁用 Spring AI 的 ChatClient 自动配置，使用我们自定义的
+      memory:
+        repository:
+          jdbc:
+            initialize-schema: never # 自动创建表选项
+        auto-configuration:
+          enabled: false
+        observations:
+          log-prompt: true
+          log-completion: true
+    vectorstore:
+      pgvector:
+        embedding-dimension: 1024  # embedding 维度
+        distance-type: COSINE_DISTANCE
+        index-type: HNSW
+        datasource:
+          driver-class-name: org.postgresql.Driver
+          username: postgres
+          password: Lain_007
+          url: jdbc:postgresql://117.72.210.49:15432/springai
+          type: com.zaxxer.hikari.HikariDataSource
+          hikari:
+            maximum-pool-size: 5
+            # 1. 缩短生命周期（建议设置为 3-5 分钟，即 180000 - 300000ms）
+            # 必须小于数据库服务器的 wait_timeout
+            max-lifetime: 180000
+
+            # 2. 设置空闲超时
+            idle-timeout: 60000
+
+            # 3. 开启连接存活测试（关键！）
+            # 每当连接从池中取出时，先发一个轻量级查询测试它是否还活着
+            connection-test-query: SELECT 1
+
+            # 4. 超时稍长一点，防止 AI 检索大向量时超时报错
+            connection-timeout: 30000
+
+            # 5. 最小空闲连接数
+            minimum-idle: 5
+    embedding:
+      # 显式指定使用 embedding
+      model: openai
+    openai:
+      api-key: sk-cp-iCPIn304RzaQmSahTD9_GtaDCJVxSYyR1xKbWZrNlEdoVtoXG2cSv78AKM_Mu2E2h4l25oX-8cC11eJK3worf2qhpmykZEZwTAq4eaWZTnZqXawM1lb-9_U
+      # 注意：地址是 https://api.minimaxi.com/v1
+      base-url: https://api.minimaxi.com
+      chat:
+        options:
+          # 使用 M2.7 系列模型
+          model: MiniMax-M2.7
+          # 官方建议推理模型 temperature 设为 1.0
+          temperature: 1.0
+      embedding:
+        enabled: true
+        options:
+          model: BAAI/bge-m3
+    minimax:
+      base-url: https://api.minimaxi.com
+      api-key: sk-cp-iCPIn304RzaQmSahTD9_GtaDCJVxSYyR1xKbWZrNlEdoVtoXG2cSv78AKM_Mu2E2h4l25oX-8cC11eJK3worf2qhpmykZEZwTAq4eaWZTnZqXawM1lb-9_U
+      chat:
+        options:
+          # 使用 M2.7 系列模型
+          model: MiniMax-M2.7
+          # 官方建议推理模型 temperature 设为 1.0
+          temperature: 1.0
+    # MiniMax API 重试配置（应对 429/529 限流）
+    retry:
+      enabled: true
+      max-attempts: 3
+      backoff:
+        initial-interval: 2000
+        max-interval: 30000
+        multiplier: 2
+    # 向量嵌入配置
+    zhipuai:
+      api-key: eba47b795b6a4b828eb81df14e09500a.50FgIRxjwMFZQALh
+      options:
+        model: embedding-3
+    # Rerank 重排序配置
+    rerank:
+      enabled: true
+      api-key: sk-ibkhhlbmycyrbenrlcngrzixadrtqzdhmdsywrejswgdmucc
+      base-url: https://api.siliconflow.cn
+      model: BAAI/bge-reranker-v2-m3
+      top-n: 3
+      return-documents: false
+    tool:
+      search:
+        api-key: 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
+        max-results: 5
+    context:
+      compression:
+        enabled: true
+        context-window: 204800
+        threshold: 0.75
+        keepEarliest: 2                # 保留最早 N 条
+        keepRecent: 4                  # 保留最近 N 条
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+      file-size-threshold: 10MB
+
+# 线程池配置
+thread:
+  pool:
+    executor:
+      config:
+        core-pool-size: 20
+        max-pool-size: 50
+        keep-alive-time: 5000
+        block-queue-size: 5000
+        policy: CallerRunsPolicy
+
+logging:
+  level:
+    org.springframework.web.client.RestClient: DEBUG
+
+    # 开启 Spring AI 核心包的调试日志
+#    org.springframework.ai: DEBUG
+    # 开启底层模型客户端（如 OpenAI）的调试日志
+#    org.springframework.ai.openai.api: DEBUG
+    # 开启后打印 LLM 完整请求/响应
+#    top.javarem.skillDemo.service.SkillActivationService: TRACE
+    # SkillActivationAdvisor 日志
+#    top.javarem.skillDemo.advisor: DEBUG
+
+# Skill 配置
+skill:
+  discovery:
+    enabled: true
+    root: file:${user.home}/.omni/
+    path: skills/**/SKILL.md
+  guide:
+    enabled: true
+    output-path: file:${user.home}/.omni/skills/
+  activation:
+    #向量相似度阈值
+    vector-threshold: 0.2
+    #返回 Top K
+    top-k: 5
+
+# RAG 递归分块配置
+rag:
+  chunking:
+    # 自定义分隔符（按优先级排序）
+    separators:
+      - "\n\n"
+      - "\n"
+      - "。"
+      - "；"
+      - "，"
+      - " "
+      - ""
+
+    # 分块大小 (tokens)
+    parent-chunk-size: 800
+    child-chunk-size: 200
+
+    # 重叠大小 (tokens)
+    parent-overlap: 50
+    child-overlap: 20
+
+    # 结构化切分
+    enable-structure-aware: true
+    enable-breadcrumbs: true
+
+    # 保护配置
+    max-recursion-depth: 20
+    max-chunk-size: 10000
+
+# Agent 子代理配置
+agent:
+  # 最大自治循环迭代次数
+  max-iterations: 50
+  # 子代理工作目录
+  working-directory: ${user.dir}
+  # 默认超时时间 (ms)
+  default-timeout-ms: 180000
+
+# Skill 系统配置
+skill:
+  discovery:
+    root: file:${user.home}/.omni/
+    path: skills/**/SKILL.md
+    sources:
+      bundled:
+        enabled: true
+        path: classpath:/skills/
+      managed:
+        enabled: true
+      user:
+        enabled: true
+      project:
+        enabled: false
+
+  permissions:
+    rules:
+      deny:
+        - "dangerous-operation"
+      allow:
+        - "pdf"
+        - "xlsx"
+        - "docx"
+    default-behavior: ask
+    auto-allow-safe-properties: true
+
+  execution:
+    fork-threshold: high
+    inline-timeout: 60000
+    fork-timeout: 300000
+
+  telemetry:
+    enabled: true
+    log-detail: full
+    persist: false
+
+  error:
+    user-detail: simple
+    log-detail: full
