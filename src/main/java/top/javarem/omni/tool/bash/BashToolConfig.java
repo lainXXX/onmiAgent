@@ -38,10 +38,10 @@ public class BashToolConfig implements AgentTool {
             return "❌ 命令不能为空";
         }
 
-        // 2. 沙箱检查
+        // 2. 沙箱检查 — 始终拒绝
         if (Boolean.TRUE.equals(dangerouslyDisableSandbox)) {
-            log.warn("[BashToolConfig] 沙箱已被禁用: {}", command);
-            return "⚠️ 沙箱已禁用，此操作存在风险: " + command;
+            log.warn("[BashToolConfig] 沙箱禁用请求被拒绝: {}", command);
+            return "❌ 沙箱禁用选项不被支持，拒绝执行危险操作: " + command;
         }
 
         // 3. 超时处理

@@ -15,39 +15,32 @@ public class ProcessTreeKiller {
      * 销毁进程及其子进程
      */
     public void kill(Process process) {
+        long pid = process.pid();
         try {
             process.destroyForcibly();
+        } catch (Exception ignored) {
+        }
 
-            long pid = process.pid();
-            String os = System.getProperty("os.name").toLowerCase();
-
-            if (os.contains("windows")) {
-                killOnWindows(pid);
-            } else {
-                killOnUnix(pid);
-            }
-        } catch (Exception e) {
-            log.warn("销毁进程树失败", e);
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.contains("windows")) {
+            runCommand("cmd", "/c", "taskkill /F /T /PID " + pid);
+        } else {
+            runCommand("pkill", "-P", String.valueOf(pid));
+            runCommand("kill", "-9", String.valueOf(pid));
         }
     }
 
-    private void killOnWindows(long pid) {
+    private void runCommand(String... command) {
         try {
-            ProcessBuilder pb = new ProcessBuilder("cmd", "/c", "taskkill /T /F /PID " + pid);
+            ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
             Process killProcess = pb.start();
-            killProcess.waitFor(BashConstants.KILL_WAIT_SECONDS, TimeUnit.SECONDS);
-            killProcess.destroyForcibly();
-        } catch (Exception ignored) {}
-    }
-
-    private void killOnUnix(long pid) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder("pkill", "-P", String.valueOf(pid));
-            pb.redirectErrorStream(true);
-            Process killProcess = pb.start();
-            killProcess.waitFor(BashConstants.KILL_WAIT_SECONDS, TimeUnit.SECONDS);
-            killProcess.destroyForcibly();
-        } catch (Exception ignored) {}
+            boolean completed = killProcess.waitFor(BashConstants.KILL_WAIT_SECONDS, TimeUnit.SECONDS);
+            if (!completed) {
+                log.warn("[ProcessTreeKiller] Kill command did not complete: {}", String.join(" ", command));
+            }
+        } catch (Exception e) {
+            log.warn("[ProcessTreeKiller] Failed to execute kill command: {} - {}", String.join(" ", command), e.getMessage());
+        }
     }
 }

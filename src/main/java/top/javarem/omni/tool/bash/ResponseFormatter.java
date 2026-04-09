@@ -62,6 +62,20 @@ public class ResponseFormatter {
     }
 
     /**
+     * 格式化待审批响应
+     */
+    public String formatPending(String ticketId, String message) {
+        return String.format("⏸️ %s\n\n票根ID: %s\n\n请在界面中审批此命令", message, ticketId);
+    }
+
+    /**
+     * 格式化后台命令启动响应
+     */
+    public String formatBackgroundStarted(String pid, String command) {
+        return String.format("✅ 后台命令已启动\n\nPID: %s\n命令: %s", pid, command);
+    }
+
+    /**
      * 去除 ANSI 转义序列
      */
     private String stripAnsi(String input) {
