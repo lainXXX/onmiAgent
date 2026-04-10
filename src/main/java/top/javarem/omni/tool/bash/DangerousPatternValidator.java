@@ -53,12 +53,17 @@ public class DangerousPatternValidator {
 
         String trimmed = command.trim();
 
-        // Check allowlist first
+        // Check allowlist first — 支持命令链（&&, |, ;）
         if (!allowedCommands.isEmpty()) {
+            // 单条命令完全匹配
             for (String allowed : allowedCommands) {
                 if (trimmed.equals(allowed) || trimmed.startsWith(allowed + " ")) {
                     return Result.ALLOW;
                 }
+            }
+            // 命令链：拆分成多个子命令，全部在白名单中则放行
+            if (isAllSegmentsApproved(trimmed)) {
+                return Result.ALLOW;
             }
         }
 
@@ -186,6 +191,47 @@ public class DangerousPatternValidator {
             }
         }
         return false;
+    }
+
+    /**
+     * 检查命令链（&&, |, ;）的所有部分是否都在白名单中
+     */
+    private boolean isAllSegmentsApproved(String command) {
+        // 按 &&, |, ; 分隔
+        String[] segments = command.split("[&|;]+");
+        for (String segment : segments) {
+            String trimmed = segment.trim();
+            if (trimmed.isEmpty()) continue;
+            // 提取主命令（第一个单词）
+            String mainCmd = extractMainCommand(trimmed);
+            boolean found = false;
+            for (String allowed : allowedCommands) {
+                if (allowed.equals(mainCmd) || trimmed.equals(allowed) || trimmed.startsWith(allowed + " ")) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        return true;
+    }
+
+    private String extractMainCommand(String segment) {
+        String trimmed = segment.trim();
+        // cd 后面跟任意路径都是安全的，直接返回 cd
+        if (trimmed.startsWith("cd ")) {
+            return "cd";
+        }
+        // 移除 sudo 前缀
+        if (trimmed.startsWith("sudo ")) {
+            trimmed = trimmed.substring(5).trim();
+        }
+        // 取第一个单词作为主命令
+        int spaceIdx = trimmed.indexOf(' ');
+        if (spaceIdx > 0) {
+            trimmed = trimmed.substring(0, spaceIdx);
+        }
+        return trimmed.toLowerCase();
     }
 
     private boolean hasEnvironmentVariableOutsideQuotes(String command) {
