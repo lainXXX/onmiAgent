@@ -14,6 +14,10 @@ export function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const [workspace, setWorkspace] = useState<string>(() => {
+    return localStorage.getItem('omni-workspace') || '';
+  });
   const [pendingQuestion, setPendingQuestion] = useState<{
     questionId: string;
     questions: Question[];
@@ -103,6 +107,15 @@ export function App() {
     }
   }, [conversations]);
 
+  // Persist workspace to localStorage
+  useEffect(() => {
+    if (workspace) {
+      localStorage.setItem('omni-workspace', workspace);
+    } else {
+      localStorage.removeItem('omni-workspace');
+    }
+  }, [workspace]);
+
   const handleNewChat = () => {
     const newConv: Conversation = {
       id: Date.now(),
@@ -124,6 +137,30 @@ export function App() {
       setMessages(conv.messages);
       setPendingQuestion(null);
     }
+  };
+
+  const handleDeleteChat = (id: number) => {
+    if (!confirm('确定要删除这个会话吗？')) return;
+    const remaining = conversations.filter((c) => c.id !== id);
+    setConversations(remaining);
+    if (activeId === id) {
+      if (remaining.length > 0) {
+        setActiveId(remaining[0].id);
+        setMessages(remaining[0].messages);
+      } else {
+        setActiveId(null);
+        setMessages([]);
+      }
+    }
+    if (remaining.length === 0) {
+      localStorage.removeItem('omni-conversations');
+    }
+  };
+
+  const handleRenameChat = (id: number, title: string) => {
+    setConversations((convs) =>
+      convs.map((c) => (c.id === id ? { ...c, title } : c))
+    );
   };
 
   const handleSend = async (text: string) => {
@@ -155,7 +192,7 @@ export function App() {
 
     try {
       let fullContent = '';
-      for await (const event of streamChat(text, activeConversation.sessionId)) {
+      for await (const event of streamChat(text, activeConversation.sessionId, workspace)) {
         if (event.type === 'ask-user-question') {
           setIsStreaming(false);
           setPendingQuestion({
@@ -210,16 +247,29 @@ export function App() {
 
   return (
     <div className="flex h-full bg-white dark:bg-gray-900">
-      <Sidebar
-        conversations={conversations}
-        activeId={activeId}
-        onSelect={handleSelectChat}
-        onNew={handleNewChat}
-      />
+      {leftSidebarOpen && (
+        <Sidebar
+          conversations={conversations}
+          activeId={activeId}
+          onSelect={handleSelectChat}
+          onNew={handleNewChat}
+          onDelete={handleDeleteChat}
+          onRename={handleRenameChat}
+        />
+      )}
 
       <main className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+        <header className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex items-center gap-3">
+          <button
+            onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
+            className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            title={leftSidebarOpen ? '隐藏侧边栏' : '显示侧边栏'}
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d={leftSidebarOpen ? 'M11 19l-7-7 7-7' : 'M13 5l7 7-7 7'} />
+            </svg>
+          </button>
           <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
             {activeConversation?.title || 'OmniAgent'}
           </h1>
@@ -332,7 +382,7 @@ export function App() {
         <ChatInput onSend={handleSend} disabled={isStreaming || !!pendingApproval} />
       </main>
 
-      <ToolsSidebar />
+      <ToolsSidebar workspace={workspace} onWorkspaceChange={setWorkspace} />
     </div>
   );
 }

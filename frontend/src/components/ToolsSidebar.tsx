@@ -10,6 +10,8 @@ interface Tool {
 
 interface ToolsSidebarProps {
   tools?: Tool[];
+  workspace?: string;
+  onWorkspaceChange?: (ws: string) => void;
 }
 
 const defaultTools: Tool[] = [
@@ -25,7 +27,7 @@ const defaultTools: Tool[] = [
   },
 ];
 
-export function ToolsSidebar({ tools = defaultTools }: ToolsSidebarProps) {
+export function ToolsSidebar({ tools = defaultTools, workspace = '', onWorkspaceChange }: ToolsSidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<string | null>(null);
 
@@ -71,6 +73,31 @@ export function ToolsSidebar({ tools = defaultTools }: ToolsSidebarProps) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
+        </div>
+
+        {/* Workspace Setting */}
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+            Workspace 目录
+          </label>
+          <input
+            type="text"
+            value={workspace}
+            onChange={(e) => onWorkspaceChange?.(e.target.value)}
+            placeholder="默认项目目录"
+            className="w-full px-2.5 py-1.5 text-xs bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 placeholder-gray-400 focus:outline-none focus:border-purple-500 transition-colors"
+          />
+          {workspace && (
+            <button
+              onClick={() => onWorkspaceChange?.('')}
+              className="mt-1.5 w-full text-xs text-gray-400 hover:text-purple-500 transition-colors"
+            >
+              重置为默认
+            </button>
+          )}
+          <p className="mt-1.5 text-xs text-gray-400">
+            {workspace ? '已授权访问此目录' : '未设置，使用项目默认目录'}
+          </p>
         </div>
 
         {/* Tool List */}

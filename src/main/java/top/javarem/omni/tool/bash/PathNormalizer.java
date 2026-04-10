@@ -26,15 +26,22 @@ public class PathNormalizer {
     }
 
     public void validate(String command) {
+        validate(command, this.workspace);
+    }
+
+    public void validate(String command, String workspace) {
+        if (workspace == null || workspace.isBlank()) {
+            workspace = this.workspace;
+        }
         String[] words = command.split("[\\s]+");
         for (String word : words) {
             if (word.contains("/") || word.contains("\\")) {
-                validatePath(word);
+                validatePath(word, workspace);
             }
         }
     }
 
-    private void validatePath(String pathCandidate) {
+    private void validatePath(String pathCandidate, String workspace) {
         try {
             String normalized = normalize(pathCandidate);
 

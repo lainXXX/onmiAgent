@@ -4,14 +4,19 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
+import top.javarem.omni.utils.RequestContextHolder;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.concurrent.*;
 
@@ -33,6 +38,12 @@ public class BashExecutor {
 
     @Resource
     private ResponseFormatter formatter;
+
+    /**
+     * 默认 workspace（来自配置），当用户未指定 workspace 时使用
+     */
+    @Value("${agent.working-directory:${user.dir}}")
+    private String defaultWorkspace;
 
     private final ProcessTreeKiller processKiller = new ProcessTreeKiller();
 
@@ -79,10 +90,36 @@ public class BashExecutor {
     }
 
     /**
+     * 解析有效的 workspace：
+     * 1. 从 RequestContextHolder 获取用户指定的 workspace
+     * 2. 校验是否存在且为目录，无效则降级到 defaultWorkspace
+     */
+    private String resolveEffectiveWorkspace() {
+        String userWorkspace = RequestContextHolder.getWorkspace();
+        if (userWorkspace == null || userWorkspace.isBlank()) {
+            return defaultWorkspace;
+        }
+        try {
+            Path path = Paths.get(userWorkspace).toAbsolutePath().normalize();
+            if (!Files.exists(path) || !Files.isDirectory(path)) {
+                log.warn("[BashExecutor] 用户指定的 workspace 无效: {}, 降级到默认: {}",
+                         userWorkspace, defaultWorkspace);
+                return defaultWorkspace;
+            }
+            return path.toString().replace("\\", "/");
+        } catch (Exception e) {
+            log.warn("[BashExecutor] workspace 解析异常: {}, 降级到默认: {}",
+                     userWorkspace, defaultWorkspace);
+            return defaultWorkspace;
+        }
+    }
+
+    /**
      * 执行命令（同步等待结果）
      */
     public String execute(String command, long timeoutMs) throws Exception {
-        SecurityInterceptor.CheckResult check = securityInterceptor.check(command);
+        String effectiveWorkspace = resolveEffectiveWorkspace();
+        SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace);
         switch (check.type()) {
             case DENY:
                 return formatter.formatError("安全拦截: " + check.message(), -1, command);
@@ -98,7 +135,8 @@ public class BashExecutor {
      * 后台执行命令
      */
     public String executeBackground(String command) throws Exception {
-        SecurityInterceptor.CheckResult check = securityInterceptor.check(command);
+        String effectiveWorkspace = resolveEffectiveWorkspace();
+        SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace);
         if (check.type() == SecurityInterceptor.CheckResult.Type.DENY) {
             return formatter.formatError("安全拦截: " + check.message(), -1, command);
         }
