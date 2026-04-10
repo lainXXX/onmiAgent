@@ -260,27 +260,53 @@ public class SkillDiscovery {
     }
 
     private Path buildPath(SkillSource source, String skillName) {
-        String root = skillRootPath.replace("${user.home}", System.getProperty("user.home"));
-        // 确保 root 末尾有 /
-        if (!root.endsWith("/")) {
-            root += "/";
-        }
+        // 解析 ${user.home} 并去除 file: 前缀
+        String resolvedRoot = resolveRootPath();
 
         return switch (source) {
             // BUNDLED 使用 discoverBundled() 方法，不走此路径
-            case USER -> Paths.get(root, "skills", skillName, "SKILL.md");
+            case USER -> Paths.get(resolvedRoot, "skills", skillName, "SKILL.md");
             case PROJECT -> Paths.get(".claude/skills", skillName, "SKILL.md");
-            case MANAGED -> Paths.get(root, ".claude/skills", skillName, "SKILL.md");
+            case MANAGED -> Paths.get(resolvedRoot, ".claude/skills", skillName, "SKILL.md");
             default -> null;
         };
     }
 
+    /**
+     * 解析 root 路径，处理 ${user.home} 和 file: 前缀
+     */
+    private String resolveRootPath() {
+        String root = skillRootPath;
+
+        // 处理 Spring 未解析的 ${user.home}
+        if (root.contains("${user.home}")) {
+            root = root.replace("${user.home}", System.getProperty("user.home"));
+        }
+
+        // 去除 file: 前缀（如果是 file: 开头的 URI）
+        if (root.startsWith("file:")) {
+            root = root.substring(5);
+        }
+
+        // 标准化路径分隔符
+        root = root.replace("\\", "/");
+
+        // 确保末尾有 /
+        if (!root.endsWith("/")) {
+            root += "/";
+        }
+
+        return root;
+    }
+
     private String buildGlobPattern(SkillSource source) {
+        String root = resolveRootPath();
+
         return switch (source) {
             case BUNDLED -> bundledPath + "**/SKILL.md";
-            case USER -> skillRootPath + "/skills/**/SKILL.md";
+            case USER -> root + "skills/**/SKILL.md";
             case PROJECT -> ".claude/skills/**/SKILL.md";
-            case MANAGED -> skillRootPath + "/.claude/skills/**/SKILL.md";
+            case MANAGED -> root + ".claude/skills/**/SKILL.md";
         };
     }
 
