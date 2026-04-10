@@ -1,14 +1,17 @@
 package top.javarem.omni.tool.bash;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Files;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
 @Component
+@Slf4j
 public class DangerousPatternValidator {
 
     private static final String[] DIRECT_DENY_PATTERNS = {
@@ -27,13 +30,13 @@ public class DangerousPatternValidator {
 
     private static final char[] INJECTION_SYMBOLS = {';', '|', '&'};
 
-    private static final Set<String> allowedCommands = new HashSet<>();
+    private final Set<String> allowedCommands;
 
-    public DangerousPatternValidator() {
-        // No-arg constructor for test compatibility - allowedCommands remains empty
-    }
-
+    /**
+     * 构造函数 - 由 Spring 调用，注入 approved-commands.properties
+     */
     public DangerousPatternValidator(@Value("classpath:approved-commands.properties") Resource resource) {
+        this.allowedCommands = new HashSet<>();
         try {
             for (String line : Files.readAllLines(resource.getFile().toPath())) {
                 String trimmed = line.trim();
@@ -41,8 +44,9 @@ public class DangerousPatternValidator {
                     allowedCommands.add(trimmed);
                 }
             }
+            log.info("[DangerousPatternValidator] loaded {} approved commands", allowedCommands.size());
         } catch (Exception e) {
-            // If file missing, deny all non-trivial commands
+            log.error("[DangerousPatternValidator] failed to load approved-commands.properties", e);
         }
     }
 
@@ -53,20 +57,7 @@ public class DangerousPatternValidator {
 
         String trimmed = command.trim();
 
-        // Check allowlist first — 支持命令链（&&, |, ;）
-        if (!allowedCommands.isEmpty()) {
-            // 单条命令完全匹配
-            for (String allowed : allowedCommands) {
-                if (trimmed.equals(allowed) || trimmed.startsWith(allowed + " ")) {
-                    return Result.ALLOW;
-                }
-            }
-            // 命令链：拆分成多个子命令，全部在白名单中则放行
-            if (isAllSegmentsApproved(trimmed)) {
-                return Result.ALLOW;
-            }
-        }
-
+        // 危险模式检查优先于白名单检查
         for (String pattern : DIRECT_DENY_PATTERNS) {
             if (trimmed.matches("(?i).*" + pattern + ".*")) {
                 return Result.DENY;
@@ -87,6 +78,28 @@ public class DangerousPatternValidator {
 
         if (hasBacktickSubshellOutsideQuotes(trimmed)) {
             return Result.DENY;
+        }
+
+        // 白名单检查 — 支持命令链（&&, |, ;）
+        if (!allowedCommands.isEmpty()) {
+            // 先判断是否是命令链（包含 &&, |, ; 等连接符）
+            boolean isChain = hasCommandChainingOutsideQuotes(trimmed);
+            if (!isChain) {
+                // 非命令链：单条命令完全匹配
+                for (String allowed : allowedCommands) {
+                    if (trimmed.equals(allowed) || trimmed.startsWith(allowed + " ")) {
+                        log.debug("[DangerousPatternValidator] ALLOW (single match): allowed={}, command={}", allowed, trimmed);
+                        return Result.ALLOW;
+                    }
+                }
+            }
+            // 命令链：拆分成多个子命令，全部在白名单中则放行
+            if (isAllSegmentsApproved(trimmed)) {
+                log.debug("[DangerousPatternValidator] ALLOW (command chain): command={}", trimmed);
+                return Result.ALLOW;
+            }
+        } else {
+            log.warn("[DangerousPatternValidator] allowedCommands is EMPTY, will proceed to pattern checks");
         }
 
         for (String pattern : REQUIRES_APPROVAL_PATTERNS) {
@@ -199,11 +212,13 @@ public class DangerousPatternValidator {
     private boolean isAllSegmentsApproved(String command) {
         // 按 &&, |, ; 分隔
         String[] segments = command.split("[&|;]+");
+        log.debug("[DangerousPatternValidator] isAllSegmentsApproved: command={}, segments={}", command, Arrays.toString(segments));
         for (String segment : segments) {
             String trimmed = segment.trim();
             if (trimmed.isEmpty()) continue;
             // 提取主命令（第一个单词）
             String mainCmd = extractMainCommand(trimmed);
+            log.debug("[DangerousPatternValidator]   segment={}, mainCmd={}", trimmed, mainCmd);
             boolean found = false;
             for (String allowed : allowedCommands) {
                 if (allowed.equals(mainCmd) || trimmed.equals(allowed) || trimmed.startsWith(allowed + " ")) {
@@ -211,7 +226,10 @@ public class DangerousPatternValidator {
                     break;
                 }
             }
-            if (!found) return false;
+            if (!found) {
+                log.debug("[DangerousPatternValidator]   mainCmd {} NOT in allowedCommands", mainCmd);
+                return false;
+            }
         }
         return true;
     }

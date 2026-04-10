@@ -7,7 +7,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
-import top.javarem.omni.utils.RequestContextHolder;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -91,11 +90,10 @@ public class BashExecutor {
 
     /**
      * 解析有效的 workspace：
-     * 1. 从 RequestContextHolder 获取用户指定的 workspace
+     * 1. 使用传入的 userWorkspace
      * 2. 校验是否存在且为目录，无效则降级到 defaultWorkspace
      */
-    private String resolveEffectiveWorkspace() {
-        String userWorkspace = RequestContextHolder.getWorkspace();
+    private String resolveEffectiveWorkspace(String userWorkspace) {
         if (userWorkspace == null || userWorkspace.isBlank()) {
             return defaultWorkspace;
         }
@@ -117,8 +115,8 @@ public class BashExecutor {
     /**
      * 执行命令（同步等待结果）
      */
-    public String execute(String command, long timeoutMs) throws Exception {
-        String effectiveWorkspace = resolveEffectiveWorkspace();
+    public String execute(String command, long timeoutMs, String userWorkspace) throws Exception {
+        String effectiveWorkspace = resolveEffectiveWorkspace(userWorkspace);
         SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace);
         switch (check.type()) {
             case DENY:
@@ -134,8 +132,8 @@ public class BashExecutor {
     /**
      * 后台执行命令
      */
-    public String executeBackground(String command) throws Exception {
-        String effectiveWorkspace = resolveEffectiveWorkspace();
+    public String executeBackground(String command, String userWorkspace) throws Exception {
+        String effectiveWorkspace = resolveEffectiveWorkspace(userWorkspace);
         SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace);
         if (check.type() == SecurityInterceptor.CheckResult.Type.DENY) {
             return formatter.formatError("安全拦截: " + check.message(), -1, command);

@@ -62,5 +62,12 @@
 你已被调用在以下环境中：
 - 主工作目录：C：\\Users\\aaa
 - 平台：win32\n - shell：bash（使用 Unix shell 语法，非 Windows——例如，/dev/null 非 NUL，路径前斜杠）
+
+# Windows 执行约定
+- Windows 下统一使用 **Git Bash** 执行命令（已配置 bash.exe）
+- **禁止混用 Unix 与 Windows 命令风格**，如 `rm -rf /d/... || cmd //c "rmdir /s /q D:\..."`
+- 路径格式：Windows 下统一用 Git Bash 风格（`/d/Develop/...`），不要混用 `D:\` 格式
+- 删除操作：直接使用 `rm -rf /d/...` 即可，不要加 cmd fallback
+- 列表操作：使用 `ls -la /d/...` 即可，不要加 dir fallback
 - 操作系统版本：Windows 11 Home China 10.0.26200
 - 你使用的是 MiniMax-M2.7 型号。

@@ -22,7 +22,7 @@ class BashExecutorIT {
         if (executor == null) {
             return;
         }
-        String result = executor.execute("echo '中文测试 ¥€$'", 10000);
+        String result = executor.execute("echo '中文测试 ¥€$'", 10000, null);
         assertNotNull(result);
     }
 
@@ -31,7 +31,7 @@ class BashExecutorIT {
         if (executor == null) {
             return;
         }
-        String result = executor.execute("echo 'out' && echo 'err' >&2", 10000);
+        String result = executor.execute("echo 'out' && echo 'err' >&2", 10000, null);
         assertTrue(result.contains("out") && result.contains("err"), "stderr should be merged, both out and err must be present");
     }
 
@@ -40,7 +40,7 @@ class BashExecutorIT {
         if (executor == null) {
             return;
         }
-        String result = executor.execute("sleep 10", 500);
+        String result = executor.execute("sleep 10", 500, null);
         assertTrue(result.contains("超时") || result.contains("timeout"), "Should indicate timeout");
     }
 
@@ -49,7 +49,7 @@ class BashExecutorIT {
         if (executor == null) {
             return;
         }
-        String result = executor.execute("rm -rf /", 5000);
+        String result = executor.execute("rm -rf /", 5000, null);
         assertNotNull(result);
         assertTrue(result.contains("安全拦截") || result.contains("拒绝"),
                 "Should reject dangerous command");
@@ -60,7 +60,7 @@ class BashExecutorIT {
         if (executor == null) {
             return;
         }
-        String result = executor.execute("echo 'hello'", 5000);
+        String result = executor.execute("echo 'hello'", 5000, null);
         assertNotNull(result);
         assertTrue(result.contains("hello"), "Should contain echo output");
     }

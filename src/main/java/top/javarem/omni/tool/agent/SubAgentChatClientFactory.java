@@ -7,19 +7,23 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import top.javarem.omni.loader.SkillLoader;
 import top.javarem.omni.tool.ToolsManager;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 子 Agent ChatClient 工厂
- * 根据 Agent 类型创建专用的 ChatClient 实例
+ * 根据 Agent 类型创建专用的 ChatClient 实例，支持工具过滤、One-Shot 和进度追踪
  */
 @Slf4j
 @Component
@@ -29,6 +33,7 @@ public class SubAgentChatClientFactory {
     private final ToolsManager toolsManager;
     private final AgentSessionManager sessionManager;
     private final WorktreeManager worktreeManager;
+    private final SkillLoader skillLoader;
 
     @Value("${agent.max-iterations:50}")
     private int maxIterations;
@@ -40,11 +45,13 @@ public class SubAgentChatClientFactory {
             @Qualifier("miniMaxChatModel") ChatModel chatModel,
             ToolsManager toolsManager,
             AgentSessionManager sessionManager,
-            WorktreeManager worktreeManager) {
+            WorktreeManager worktreeManager,
+            SkillLoader skillLoader) {
         this.chatModel = chatModel;
         this.toolsManager = toolsManager;
         this.sessionManager = sessionManager;
         this.worktreeManager = worktreeManager;
+        this.skillLoader = skillLoader;
     }
 
     /**
@@ -94,13 +101,23 @@ public class SubAgentChatClientFactory {
     }
 
     /**
-     * 执行对话循环
+     * 执行对话循环（支持工具过滤和 One-Shot）
      */
     private String executeLoop(String taskId, AgentType type, List<Message> messages, String userId) {
+        // One-Shot 模式：直接单轮返回
+        if (type.isOneShot()) {
+            log.info("[SubAgentFactory] One-Shot模式: taskId={}, type={}", taskId, type.getValue());
+            return executeOneShot(taskId, type, messages, userId);
+        }
+
         int iterations = 0;
         String lastOutput = null;
 
+        List<ToolCallback> filteredCallbacks = getFilteredToolCallbacks(type);
+        log.info("[SubAgentFactory] 工具过滤: type={}, 可用工具数={}", type.getValue(), filteredCallbacks.size());
+
         ChatClient client = ChatClient.builder(chatModel)
+                .defaultTools(new StaticToolCallbackResolver(filteredCallbacks))
                 .build();
 
         while (iterations < maxIterations) {
@@ -153,6 +170,53 @@ public class SubAgentChatClientFactory {
 
         sessionManager.updateLastOutput(taskId, lastOutput);
         return lastOutput;
+    }
+
+    /**
+     * One-Shot 单轮执行（无工具循环）
+     */
+    private String executeOneShot(String taskId, AgentType type, List<Message> messages, String userId) {
+        List<ToolCallback> filteredCallbacks = getFilteredToolCallbacks(type);
+        log.info("[SubAgentFactory] One-Shot工具过滤: type={}, 可用工具数={}", type.getValue(), filteredCallbacks.size());
+
+        ChatClient client = ChatClient.builder(chatModel)
+                .defaultTools(new StaticToolCallbackResolver(filteredCallbacks))
+                .build();
+
+        Map<String, Object> toolContext = Map.of(
+                "userId", userId,
+                "taskId", taskId,
+                "agentType", type.getValue()
+        );
+
+        try {
+            String content = client.prompt()
+                    .messages(new ArrayList<>(messages))
+                    .toolContext(toolContext)
+                    .call()
+                    .content();
+
+            if (content == null || content.isBlank()) {
+                return extractLastAssistantOutput(messages);
+            }
+
+            sessionManager.addAssistantMessage(taskId, content);
+            sessionManager.updateLastOutput(taskId, content);
+            return content;
+
+        } catch (Exception e) {
+            log.error("[SubAgentFactory] One-Shot执行异常: taskId={}, error={}", taskId, e.getMessage());
+            return "执行出错: " + e.getMessage();
+        }
+    }
+
+    /**
+     * 根据 AgentType 过滤可用的 ToolCallback
+     */
+    private List<ToolCallback> getFilteredToolCallbacks(AgentType type) {
+        return toolsManager.getToolCallbacks().stream()
+                .filter(cb -> type.isToolAllowed(cb.getToolDefinition().name()))
+                .toList();
     }
 
     private String extractLastAssistantOutput(List<Message> messages) {
@@ -216,6 +280,41 @@ public class SubAgentChatClientFactory {
                 - 标注优先级和依赖
                 - 包含预估的风险和缓解措施
                 """;
+            case VERIFICATION -> """
+                你是一个验收测试专家。
+                你的工作不是确认实现能工作——而是尝试去破坏它。
+
+                === 两种常见的失败模式 ===
+                1. 验证回避：你找理由不去运行检查
+                2. 被前 80% 诱惑：看到精致的 UI 就通过了
+
+                === 关键原则：禁止修改项目 ===
+                - 严格禁止：创建、修改、删除文件
+                - 可以：写入临时测试脚本到 /tmp
+
+                === 验收策略 ===
+                根据变更内容调整：
+                - 前端：启动 dev server → 浏览器自动化 → 检查 console
+                - 后端/API：启动 server → curl 端点 → 验证响应结构
+                - CLI/脚本：运行输入 → 验证 stdout/stderr/exit codes
+                - 基础设施：验证语法 → dry-run → 检查环境变量
+
+                === 必须执行的步骤 ===
+                1. 阅读项目的 CLAUDE.md / README
+                2. 运行构建
+                3. 运行测试套件
+                4. 运行 linter/type-checker
+                5. 检查回归问题
+
+                === 输出格式 ===
+                每个检查必须遵循以下结构：
+                ### Check: [验证内容]
+                **Command run:** [执行的命令]
+                **Output observed:** [实际输出]
+                **Result:** PASS | FAIL
+
+                结束时：VERDICT: PASS | FAIL | PARTIAL
+                """;
             case GENERAL -> """
                 你是一个通用的任务处理 Agent。
 
@@ -274,6 +373,13 @@ public class SubAgentChatClientFactory {
                 - 提供准确的技术文档链接
                 """;
         };
+
+        // Skills 注入（如果 SkillLoader 有内容）
+        String skillsSection = skillLoader.getSkillsDescription();
+        if (skillsSection != null && !skillsSection.isBlank()) {
+            basePrompt = basePrompt + "\n\n" + skillsSection;
+        }
+
         return basePrompt + "\n\n工作目录: " + workDir;
     }
 }

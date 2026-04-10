@@ -9,7 +9,6 @@ import org.springframework.ai.chat.client.advisor.api.BaseAdvisor;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Component;
@@ -18,8 +17,12 @@ import top.javarem.omni.model.task.TaskEntity;
 import top.javarem.omni.repository.chat.MemoryRepository;
 import top.javarem.omni.service.task.TaskService;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 任务进度追踪Advisor
@@ -47,9 +50,24 @@ import java.util.List;
 public class TaskProgressAdvisor implements BaseAdvisor {
 
     /**
-     * Nag阈值 - 超过此值的对话轮次没有推进任务状态时触发提醒
+     * 轮次阈值 - 超过此值的对话轮次没有推进任务状态时触发提醒
      */
-    private static final int NAG_THRESHOLD = 3;
+    private static final int ROUNDS_THRESHOLD = 3;
+
+    /**
+     * 时间阈值 - 任务超过此时间未更新，认为可能已停滞
+     */
+    private static final long TIME_THRESHOLD_MS = 5 * 60 * 1000;
+
+    /**
+     * 提醒冷却时间 - 同一会话两次提醒的最小间隔
+     */
+    private static final long NAG_COOLDOWN_MS = 10 * 60 * 1000;
+
+    /**
+     * 硬性上限阈值 - 超过此值直接强制终止对话，防止无限循环
+     */
+    private static final int HARD_LIMIT = 100;
 
     /**
      * 任务服务 - 提供TaskEntity查询能力
@@ -67,6 +85,11 @@ public class TaskProgressAdvisor implements BaseAdvisor {
     private final ChatClientMessageAggregator aggregator = new ChatClientMessageAggregator();
 
     /**
+     * 每会话的上次提醒时间（用于冷却机制）
+     */
+    private final Map<String, Long> lastNagTime = new ConcurrentHashMap<>();
+
+    /**
      * Advisor执行顺序
      *
      * <p>设置为在LifecycleToolCallAdvisor之后执行。</p>
@@ -79,8 +102,8 @@ public class TaskProgressAdvisor implements BaseAdvisor {
     public TaskProgressAdvisor(TaskService taskService, MemoryRepository memoryRepository) {
         this.taskService = taskService;
         this.memoryRepository = memoryRepository;
-        log.info("[TaskProgressAdvisor] 初始化完成, ORDER={}, NAG_THRESHOLD={}",
-            ORDER, NAG_THRESHOLD);
+        log.info("[TaskProgressAdvisor] 初始化完成, ORDER={}, ROUNDS_THRESHOLD={}, TIME_THRESHOLD_MS={}, NAG_COOLDOWN_MS={}, HARD_LIMIT={}",
+            ORDER, ROUNDS_THRESHOLD, TIME_THRESHOLD_MS, NAG_COOLDOWN_MS, HARD_LIMIT);
     }
 
     @Override
@@ -100,21 +123,55 @@ public class TaskProgressAdvisor implements BaseAdvisor {
 
         log.debug("[TaskProgressAdvisor] before: userId={}, sessionId={}", userId, sessionId);
 
-        // 步骤1：获取活跃任务数量
-        int activeCount = countActiveTasks(userId, sessionId);
+        // 1. 获取进行中的任务
+        List<TaskEntity> inProgressTasks = taskService.list(
+            userId, sessionId, TaskEntity.STATUS_IN_PROGRESS, 1, 1
+        );
 
-        // 步骤2：从ChatMemory推算exec_rounds
-        int execRounds = calculateExecRounds(sessionId);
-
-        if (activeCount == 0) {
-            // 无活跃任务，不触发提醒
-            log.debug("[TaskProgressAdvisor] 无活跃任务, userId={}, sessionId={}", userId, sessionId);
-        } else if (execRounds >= NAG_THRESHOLD) {
-            // 有活跃任务且达到阈值，注入提醒
-            log.info("[TaskProgressAdvisor] exec_rounds达到阈值({} >= {}), 注入提醒, userId={}, sessionId={}",
-                execRounds, NAG_THRESHOLD, userId, sessionId);
-            request = injectReminder(request, userId, sessionId, execRounds);
+        if (inProgressTasks.isEmpty()) {
+            log.debug("[TaskProgressAdvisor] 无进行中任务，跳过, userId={}, sessionId={}", userId, sessionId);
+            return request;
         }
+
+        TaskEntity task = inProgressTasks.get(0);
+
+        // 2. 硬性上限检查 - 防止无限循环
+        int totalRounds = calculateTotalRounds(sessionId);
+        if (totalRounds >= HARD_LIMIT) {
+            log.error("[TaskProgressAdvisor] 总轮次达到硬性上限({} >= {}), 强制终止对话, userId={}, sessionId={}",
+                totalRounds, HARD_LIMIT, userId, sessionId);
+            throw new IllegalStateException(String.format(
+                "对话轮次已达到上限(%d)，可能存在无限循环。建议使用 TaskList 查看任务状态。", HARD_LIMIT));
+        }
+
+        // 3. 计算"任务更新后"的对话轮次
+        int roundsSinceUpdate = calculateRoundsSince(sessionId, task.updatedAt());
+
+        // 4. 任务活性检测：更新时间在阈值内，认为有活性
+        if (hasRecentActivity(task)) {
+            log.debug("[TaskProgressAdvisor] 任务有活性，updatedAt={}, roundsSinceUpdate={}",
+                task.updatedAt(), roundsSinceUpdate);
+            return request;
+        }
+
+        // 5. 轮次阈值检查
+        if (roundsSinceUpdate < ROUNDS_THRESHOLD) {
+            log.debug("[TaskProgressAdvisor] 轮次未达阈值，roundsSinceUpdate={} < {}",
+                roundsSinceUpdate, ROUNDS_THRESHOLD);
+            return request;
+        }
+
+        // 6. 冷却检查
+        if (!shouldNag(sessionId)) {
+            log.debug("[TaskProgressAdvisor] 提醒冷却中，sessionId={}", sessionId);
+            return request;
+        }
+
+        // 7. 注入提醒
+        log.info("[TaskProgressAdvisor] 注入提醒，task={}, roundsSinceUpdate={}",
+            task.subject(), roundsSinceUpdate);
+        request = injectReminder(request, task, roundsSinceUpdate);
+        recordNag(sessionId);
 
         return request;
     }
@@ -138,12 +195,35 @@ public class TaskProgressAdvisor implements BaseAdvisor {
         String userId = getUserId(request);
         String sessionId = getSessionId(request);
 
-        // 活跃任务检查
-        int activeCount = countActiveTasks(userId, sessionId);
-        int execRounds = calculateExecRounds(sessionId);
+        // 1. 获取进行中任务
+        List<TaskEntity> inProgressTasks = taskService.list(
+            userId, sessionId, TaskEntity.STATUS_IN_PROGRESS, 1, 1
+        );
 
-        if (activeCount > 0 && execRounds >= NAG_THRESHOLD) {
-            request = injectReminder(request, userId, sessionId, execRounds);
+        if (inProgressTasks.isEmpty()) {
+            log.debug("[TaskProgressAdvisor] [Stream] 无进行中任务，跳过");
+        } else {
+            TaskEntity task = inProgressTasks.get(0);
+
+            // 2. 硬性上限检查
+            int totalRounds = calculateTotalRounds(sessionId);
+            if (totalRounds >= HARD_LIMIT) {
+                log.error("[TaskProgressAdvisor] [Stream] 总轮次达到硬性上限({} >= {})",
+                    totalRounds, HARD_LIMIT);
+                throw new IllegalStateException(String.format(
+                    "对话轮次已达到上限(%d)，可能存在无限循环。", HARD_LIMIT));
+            }
+
+            // 3. 计算任务更新后的轮次
+            int roundsSinceUpdate = calculateRoundsSince(sessionId, task.updatedAt());
+
+            // 4. 活性 + 阈值 + 冷却检查
+            if (!hasRecentActivity(task) && roundsSinceUpdate >= ROUNDS_THRESHOLD && shouldNag(sessionId)) {
+                log.info("[TaskProgressAdvisor] [Stream] 注入提醒，task={}, roundsSinceUpdate={}",
+                    task.subject(), roundsSinceUpdate);
+                request = injectReminder(request, task, roundsSinceUpdate);
+                recordNag(sessionId);
+            }
         }
 
         // 执行流
@@ -163,33 +243,26 @@ public class TaskProgressAdvisor implements BaseAdvisor {
     /**
      * 注入提醒到请求中
      *
-     * <p>将reminder文本作为新的用户消息追加到现有消息列表前。</p>
+     * <p>将 reminder 作为新的 UserMessage 追加到 messages 列表末尾。</p>
      */
-    private ChatClientRequest injectReminder(ChatClientRequest request, String userId, String sessionId, int execRounds) {
+    private ChatClientRequest injectReminder(ChatClientRequest request, TaskEntity task, int roundsSinceUpdate) {
         try {
-            // 构建提醒文本
-            String reminderText = buildReminder(userId, sessionId, execRounds);
-
-            // 创建新的UserMessage
+            String reminderText = buildReminder(task, roundsSinceUpdate);
             UserMessage reminderMessage = new UserMessage(reminderText);
 
-            // 获取所有现有消息
-            List<Message> allMessages = new ArrayList<>(request.prompt().getInstructions());
+            // ✅ 正确做法：追加到 getInstructions() 末尾
+            List<Message> messages = new ArrayList<>(request.prompt().getInstructions());
+            messages.add(reminderMessage);
 
-            // 在消息列表最后面插入提醒消息
-            allMessages.add(reminderMessage);
-
-            // 使用messages()方法重建prompt
             Prompt newPrompt = request.prompt().mutate()
-                .messages(allMessages)
+                .messages(messages)
                 .build();
 
-            log.info("[TaskProgressAdvisor] 提醒已注入, exec_rounds={}", execRounds);
-
+            log.info("[TaskProgressAdvisor] 提醒已注入, task={}, roundsSinceUpdate={}", task.subject(), roundsSinceUpdate);
             return request.mutate().prompt(newPrompt).build();
 
         } catch (Exception e) {
-            log.warn("[TaskProgressAdvisor] 注入提醒时发生异常: {}", e.getMessage(), e);
+            log.warn("[TaskProgressAdvisor] 注入提醒异常: {}", e.getMessage(), e);
             return request;
         }
     }
@@ -197,60 +270,73 @@ public class TaskProgressAdvisor implements BaseAdvisor {
     /**
      * 构建提醒文本
      */
-    private String buildReminder(String userId, String sessionId, int execRounds) {
-        StringBuilder sb = new StringBuilder();
-
-        sb.append("<system_reminder>\n");
-
-        // 获取进行中的任务
-        List<TaskEntity> inProgressTasks = taskService.list(userId, sessionId, TaskEntity.STATUS_IN_PROGRESS, 1, 10);
-
-        if (!inProgressTasks.isEmpty()) {
-            TaskEntity task = inProgressTasks.get(0);
-            sb.append("[当前焦点]\n");
-            sb.append("  🔄 ").append(task.subject()).append("\n");
-            sb.append("  状态: 进行中（已 ").append(execRounds).append(" 轮未更新）\n");
-            sb.append("  是否还在执行？当前进度如何？\n\n");
-        } else {
-            sb.append("⚠️ 没有正在执行的任务\n\n");
-        }
-
-        sb.append("请调用 TaskList 查看完整任务列表。\n");
-        sb.append("请调用 TaskUpdate 汇报进度或完成任务，再继续执行。\n");
-        sb.append("system_reminder\n\n");
-
-        return sb.toString();
+    private String buildReminder(TaskEntity task, int roundsSinceUpdate) {
+        return String.format("""
+            <system_reminder>
+            [任务进度提醒]
+            当前进行中任务：[%s]
+            已 %d 轮对话未更新任务状态。
+            建议：请调用 TaskList 查看任务列表，TaskUpdate 汇报进度或完成任务。
+            </system_reminder>
+            """, task.subject(), roundsSinceUpdate);
     }
 
     // ==================== 基于TaskEntity的查询 ====================
 
     /**
-     * 获取活跃任务数量
-     *
-     * <p>活跃状态 = pending + in_progress。</p>
+     * 计算自任务上次更新以来的对话轮次
      */
-    private int countActiveTasks(String userId, String sessionId) {
-        var stats = taskService.stats(userId, sessionId);
-        int pending = stats.getOrDefault(TaskEntity.STATUS_PENDING, 0);
-        int inProgress = stats.getOrDefault(TaskEntity.STATUS_IN_PROGRESS, 0);
-        return pending + inProgress;
+    private int calculateRoundsSince(String sessionId, LocalDateTime taskUpdatedAt) {
+        try {
+            List<Message> messages = memoryRepository.findMessagesByConversationId(sessionId);
+            long cutoffMs = taskUpdatedAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+            return (int) messages.stream()
+                .filter(m -> m.getMetadata() != null)
+                .filter(m -> {
+                    Object ts = m.getMetadata().get("timestamp");
+                    if (ts == null) return false;
+                    long msgTime = (ts instanceof Long) ? (Long) ts : Long.parseLong(ts.toString());
+                    return msgTime > cutoffMs;
+                })
+                .count() / 2;
+        } catch (Exception e) {
+            log.warn("[TaskProgressAdvisor] calculateRoundsSince 失败: {}", e.getMessage());
+            return 0;
+        }
     }
 
     /**
-     * 从ChatMemory推算exec_rounds
-     *
-     * <p>每2条消息算一轮（用户+助手）。</p>
+     * 计算总对话轮次（用于硬性上限检查）
      */
-    private int calculateExecRounds(String sessionId) {
+    private int calculateTotalRounds(String sessionId) {
         try {
-            List<Message> messages = memoryRepository.findMessagesByConversationId(sessionId);
-            // 每2条消息算一轮（用户消息 + 助手回复）
-            int rounds = messages.size() / 2;
-            return rounds;
+            return memoryRepository.findMessagesByConversationId(sessionId).size() / 2;
         } catch (Exception e) {
-            log.warn("[TaskProgressAdvisor] calculateExecRounds失败: {}", e.getMessage());
             return 0;
         }
+    }
+
+    /**
+     * 判断任务是否有活性（更新时间在阈值内）
+     */
+    private boolean hasRecentActivity(TaskEntity task) {
+        long age = System.currentTimeMillis() - task.updatedAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        return age < TIME_THRESHOLD_MS;
+    }
+
+    /**
+     * 冷却检查 - 距离上次提醒是否已超过冷却时间
+     */
+    private boolean shouldNag(String sessionId) {
+        long lastNag = lastNagTime.getOrDefault(sessionId, 0L);
+        return System.currentTimeMillis() - lastNag > NAG_COOLDOWN_MS;
+    }
+
+    /**
+     * 记录提醒时间
+     */
+    private void recordNag(String sessionId) {
+        lastNagTime.put(sessionId, System.currentTimeMillis());
     }
 
     // ==================== 工具方法 ====================

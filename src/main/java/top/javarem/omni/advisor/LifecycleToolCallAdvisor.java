@@ -10,7 +10,6 @@ import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.stereotype.Component;
@@ -156,21 +155,30 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
 
         try {
             // 校验是否正常结束
-            String finishReason = response.chatResponse().getResults().get(0).getMetadata().getFinishReason();
-            if (!AgentFinishStatus.STOP.equals(AgentFinishStatus.from(finishReason))) {
+            if (response.chatResponse().getResults().isEmpty()) {
+                log.debug("[storeAssistantMessage] 结果为空，跳过保存");
                 return;
             }
 
-            if (response.chatResponse().getResults().isEmpty()) return;
+            String finishReason = response.chatResponse().getResults().get(0).getMetadata().getFinishReason();
+            if (!AgentFinishStatus.STOP.equals(AgentFinishStatus.from(finishReason))) {
+                log.debug("[storeAssistantMessage] 非正常结束 finishReason={}, 跳过保存", finishReason);
+                return;
+            }
+
             AssistantMessage assistantMessage = response.chatResponse().getResults().get(0).getOutput();
-            if (assistantMessage.getText() == null || assistantMessage.getText().isEmpty()) return;;
+            String text = assistantMessage.getText();
+            if (text == null || text.isBlank()) {
+                log.debug("[storeAssistantMessage] 文本为空, 跳过保存");
+                return;
+            }
 
             String conversationId = context.get(ChatMemory.CONVERSATION_ID).toString();
             String userId = context.get(AdvisorContextConstants.USER_ID).toString();
-            log.info("[保存大模型输出内容] conversationId={}, userId={}, text={}", conversationId, userId);
+            log.info("[保存大模型输出内容] conversationId={}, userId={}, textLength={}", conversationId, userId, text.length());
             this.threadPoolExecutor.execute(() -> {
                 try {
-                    chatHistoryRepository.saveAssistantMessage(conversationId, null, userId, assistantMessage.getText());
+                    chatHistoryRepository.saveAssistantMessage(conversationId, null, userId, text);
                     memoryRepository.save(conversationId, userId, assistantMessage);
                 } catch (Exception e) {
                     log.error("数据库写入失败", e);

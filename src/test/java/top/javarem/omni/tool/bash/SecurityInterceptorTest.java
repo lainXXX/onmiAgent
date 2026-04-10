@@ -2,6 +2,8 @@ package top.javarem.omni.tool.bash;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
 import static org.junit.jupiter.api.Assertions.*;
 
 class SecurityInterceptorTest {
@@ -10,8 +12,9 @@ class SecurityInterceptorTest {
 
     @BeforeEach
     void setUp() {
+        Resource resource = new ClassPathResource("test-commands.properties");
         interceptor = new SecurityInterceptor(
-            new DangerousPatternValidator(),
+            new DangerousPatternValidator(resource),
             new PathNormalizer(System.getProperty("user.dir")),
             null
         );
@@ -40,8 +43,9 @@ class SecurityInterceptorTest {
     @Test
     void shouldRequireApprovalForDangerousCommands() {
         // With real ApprovalService, should return PENDING
+        Resource resource = new ClassPathResource("test-commands.properties");
         var svc = new ApprovalService();
-        var si = new SecurityInterceptor(new DangerousPatternValidator(), new PathNormalizer(System.getProperty("user.dir")), svc);
+        var si = new SecurityInterceptor(new DangerousPatternValidator(resource), new PathNormalizer(System.getProperty("user.dir")), svc);
         var r = si.check("rm -rf ./src");
         assertEquals(SecurityInterceptor.CheckResult.Type.PENDING, r.type());
         assertNotNull(r.ticketId());

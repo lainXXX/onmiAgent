@@ -7,6 +7,19 @@ export interface PendingApproval {
 
 const API_BASE = '/chat';
 
+/**
+ * 过滤工具调用 JSON 文本，避免内部实现细节暴露给用户
+ */
+function filterToolCallText(text: string): string | null {
+  // 如果文本包含 tool_calls 字段，直接过滤掉（这是工具调用 JSON）
+  if (text.includes('"tool_calls"') ||
+      text.includes('"tool_call_id"') ||
+      text.includes('"function"')) {
+    return null;
+  }
+  return text;
+}
+
 export interface StreamEvent {
   type: 'text' | 'dangerous-command' | 'ask-user-question';
   data?: string;
@@ -65,7 +78,10 @@ export async function* streamChat(
               } else if (currentEventType === 'ask-user-question') {
                 yield { type: 'ask-user-question', ...JSON.parse(data) } as StreamEvent;
               } else {
-                yield { type: 'text', data };
+                const filtered = filterToolCallText(data);
+                if (filtered) {
+                  yield { type: 'text', data: filtered };
+                }
               }
             }
           }

@@ -36,11 +36,14 @@ The chat system uses Spring AI's Advisor pattern to process requests/responses i
 
 | Advisor | Order | Responsibility |
 |---------|-------|----------------|
-| `LifecycleToolCallAdvisor` | `Integer.MAX_VALUE - 1` | Tool call lifecycle management, stores chat history |
+| `LifecycleToolCallAdvisor` | `Integer.MAX_VALUE - 1000` | Tool call lifecycle management, stores chat history |
 | `ContextCompressionAdvisor` | 4000 | Context compression for long conversations |
 | `MessageFormatAdvisor` | 10000 | Message formatting, history loading, skill injection |
+| `TaskProgressAdvisor` | `Integer.MAX_VALUE - 100` | Tracks task execution rounds, detects stalled tasks |
 
 **Flow**: `MessageFormatAdvisor.before()` → `LifecycleToolCallAdvisor.doInitializeLoop()` → `ToolCall Loop` → `LifecycleToolCallAdvisor.doFinalizeLoop()` → `MessageFormatAdvisor.after()`
+
+`TaskProgressAdvisor` runs alongside `LifecycleToolCallAdvisor`, tracking exec_rounds to detect stalled tasks.
 
 ### Core Advisors
 
@@ -83,16 +86,27 @@ The chat system uses Spring AI's Advisor pattern to process requests/responses i
 | `web/` | WebSearchToolConfig, WebFetchToolConfig |
 | `rag/` | RagToolConfig |
 | `bash/` | BashToolConfig with security architecture (DangerousPatternValidator, SuicideCommandDetector, CommandApprover, ProcessTreeKiller) |
-| root | SkillToolConfig, AskUserToolConfig, TaskToolConfig, AgentTool, ToolsManager |
+| root | SkillToolConfig, AskUserQuestionTool, TaskToolConfig, AgentTool (marker interface), ToolsManager |
+
+**`AgentTool`** - Marker interface for tools; `ToolsManager` auto-discovers all `AgentTool` beans via `ToolCallbacks.from()` and registers them with `StaticToolCallbackResolver`.
+
+**`AskUserQuestionTool`** - Enables Agent to pause execution and ask user clarifying questions during tool call loops. Uses `AskUserQuestionService` + `CompletableFuture` for async response waiting. Throws `AskUserQuestionYieldException` to yield control back to the advisor loop.
 
 #### Agent Subsystem (`tool/agent/`)
 
-- `AgentToolConfig` - Tool configuration for agent execution
-- `AgentSessionManager` - Manages agent conversation sessions
-- `WorktreeManager` - Git worktree isolation for agent tasks
-- `AgentTaskRegistry` - Tracks running agent tasks
-- `SubAgentChatClientFactory` - Factory for creating sub-agent chat clients
-- `AgentType` - Enum defining agent types (CODER, REVIEWER, etc.)
+| Class | Responsibility |
+|-------|---------------|
+| `AgentToolConfig` | Tool entry point: `launchAgent` + `agentOutput` |
+| `SubAgentChatClientFactory` | Creates isolated ChatClient per agent type, with tool filtering and One-Shot support |
+| `AgentSessionManager` | In-memory session history for resume |
+| `AgentTaskRegistry` | Async task tracking with ownership checks |
+| `WorktreeManager` | Git worktree isolation for agent tasks |
+| `AgentType` | Enum: EXPLORE (One-Shot), PLAN (One-Shot), VERIFICATION (One-Shot), GENERAL, CODE_REVIEWER, CLAUDE_CODE_GUIDE |
+
+Key features:
+- **Tool filtering**: Each `AgentType` has an `allowedTools` set; `SubAgentChatClientFactory` filters `ToolsManager.getToolCallbacks()` accordingly
+- **One-Shot mode**: EXPLORE, PLAN, VERIFICATION agents execute in a single LLM call (no iteration loop)
+- **Verification Agent**: Specialized in breaking things rather than confirming they work
 
 #### Bash Security Architecture
 
@@ -111,7 +125,7 @@ The `bash/` package implements multi-layer command safety:
 - `MarkdownHeaderSplitter` - Markdown-aware splitting
 - `TokenCounter` - JTokkit-based token counting
 
-### Skill System (`messageLoader/`)
+### Skill System (`loader/`)
 
 - `SkillLoader` - Scans `src/main/resources/skills/` for SKILL.md files
 - `SystemMessageLoader` - Loads system prompt templates
@@ -131,6 +145,10 @@ Handles chat history persistence:
 - pgvector (vector embeddings)
 - Apache Tika + POI (document parsing)
 - JTokkit (token counting)
+
+## Frontend
+
+The `frontend/` directory contains a React/Vite web UI for interacting with the agent. It's a separate Node.js project.
 
 ## Configuration
 

@@ -46,7 +46,6 @@ public class SkillLoader {
     private final VectorStore vectorStore;
     private final Yaml yaml;
     private final JdbcTemplate pgVectorJdbcTemplate;
-    private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final ObjectMapper objectMapper;
     private final ChatModel chatModel;
 
@@ -70,37 +69,17 @@ public class SkillLoader {
     @Value("${skill.guide.output-path:${skill.discovery.root}}")
     private String guideOutputPath;
 
-    public String skillsDescription = """
-                <system-reminder>
-                
-                The following skills are available for use with the Skill tool:
-                              
-                %s
-                
-                When replying or executing tasks, please prioritize referring to and applying the norms and suggestions listed in the aforementioned skill inventory.
-                
-                <SUBAGENT-STOP>
-                    If you are assigned to perform a specific task, skip this skill.
-                </SUBAGENT-STOP>
-                            
-                <EXTREMELY-IMPORTANT>
-                    If you think there is even a 1% chance that a certain skill will be applied to what you are doing, you absolutely must use that skill.
-                    
-                    If a certain skill is applicable to your task, you have no choice. You must use it.
-                    
-                    This is non-negotiable. It's not optional. You can't use rationality to evade all of this.
-                    
-                    The instructions state "what to do" rather than "how to do it". "Adding X" or "correcting Y" does not mean skipping the workflow.
-                </EXTREMELY-IMPORTANT>
-                </system-reminder>
-                """;
+    /**
+     * Skills 描述缓存
+     * 避免每次请求都重新构建描述文本
+     */
+    private volatile String cachedSkillsDescription = null;
 
     public SkillLoader(ResourceLoader resourceLoader, VectorStore vectorStore,
                        @Qualifier("pgVectorJdbcTemplate") JdbcTemplate pgVectorJdbcTemplate,
                        ObjectMapper objectMapper,
                        @Qualifier("minimaxChatModel") ChatModel chatModel) {
         this.resourcePatternResolver = ResourcePatternUtils.getResourcePatternResolver(resourceLoader);
-        this.namedParameterJdbcTemplate = new NamedParameterJdbcTemplate(pgVectorJdbcTemplate);
         this.vectorStore = vectorStore;
         this.objectMapper = objectMapper;
         this.yaml = new Yaml();
@@ -109,7 +88,41 @@ public class SkillLoader {
     }
 
     public String getSkillsDescription() {
-        return skillsDescription;
+        if (cachedSkillsDescription != null) {
+            return cachedSkillsDescription;
+        }
+        // 未初始化时返回空字符串，避免返回模板占位符
+        return "";
+    }
+
+    /**
+     * 构建 Skills Description 模板
+     */
+    private String buildSkillsDescriptionTemplate(String skillListContent) {
+        return """
+                <system-reminder>
+
+                The following skills are available for use with the Skill tool:
+
+                %s
+
+                When replying or executing tasks, please prioritize referring to and applying the norms and suggestions listed in the aforementioned skill inventory.
+
+                <SUBAGENT-STOP>
+                    If you are assigned to perform a specific task, skip this skill.
+                </SUBAGENT-STOP>
+
+                <EXTREMELY-IMPORTANT>
+                    If you think there is even a 1%% chance that a certain skill will be applied to what you are doing, you absolutely must use that skill.
+
+                    If a certain skill is applicable to your task, you have no choice. You must use it.
+
+                    This is non-negotiable. It's not optional. You can't use rationality to evade all of this.
+
+                    The instructions state "what to do" rather than "how to do it". "Adding X" or "correcting Y" does not mean skipping the workflow.
+                </EXTREMELY-IMPORTANT>
+                </system-reminder>
+                """.formatted(skillListContent);
     }
 
     /**
@@ -122,26 +135,16 @@ public class SkillLoader {
             return;
         }
 
-        // 统计计数器
-        int[] stats = {0, 0, 0, 0}; // 新增、更新内容、更新路径、清理
         List<SkillMetadata> skillMetadataList = new ArrayList<>(); // 收集解析后的 SkillMetadata
 
         try {
-            // 1. 加载数据库全量快照
-            Map<String, SkillSnapshot> dbSnapshot = loadAllDbSkills();
-
             // 拼接绝对路径模式，必须加上 "file:" 前缀，告诉 Spring 去物理硬盘找
             // 这里使用 **/*.md 表示递归扫描 skills 目录下所有的 .md 文件
             String skillPathPattern = skillRootPath + skillStructure;
 
             // 3. 执行扫描
             Resource[] resources = resourcePatternResolver.getResources(skillPathPattern);
-            log.info("技能发现开始: 本地 {} 个文件 vs 数据库 {} 条记录",
-                    resources.length, dbSnapshot.size());
 
-            List<Document> toAdd = new ArrayList<>();
-            List<String> toDelete = new ArrayList<>();  // 待删除的 skill 名称
-            List<Map<String, Object>> toUpdateMetadata = new ArrayList<>(); // 待更新的元数据
             StringBuilder sb = new StringBuilder();
             // 2. 遍历资源，对比并分类处理
             for (Resource r : resources) {
@@ -153,58 +156,8 @@ public class SkillLoader {
                 skillMetadataList.add(localMeta);
                 sb.append("- ").append(localMeta.getName()).append(": ").append(localMeta.getDescription()).append("\n");
 
-
-//                String name = localMeta.getName();
-//                String sHash = getSemanticHash(localMeta.getDescription());
-//                String mHash = getMetadataHash(name, localMeta.getPath());
-//
-//                if (dbSnapshot.containsKey(name)) {
-//                    SkillSnapshot dbInfo = dbSnapshot.remove(name); // 标记已处理
-//
-//                    if (!Objects.equals(dbInfo.semanticHash(), sHash)) {
-//                        // 内容变化：删除旧文档 + 添加新文档
-//                        log.info("【更新内容】技能 [{}]", name);
-//                        toDelete.add(name);
-//                        prepareDocument(localMeta, sHash, mHash, toAdd);
-//                        stats[1]++;
-//                    } else if (!Objects.equals(dbInfo.metadataHash(), mHash)) {
-//                        // 仅路径变化：SQL 更新（零 token 消耗）
-//                        log.info("【更新路径】技能 [{}]", name);
-//                        toUpdateMetadata.add(Map.of(
-//                                "docId", dbInfo.docId(),
-//                                "path", localMeta.getPath().replace("\\", "/"),
-//                                "mHash", mHash
-//                        ));
-//                        stats[2]++;
-//                    } else {
-//                        log.debug("【跳过】技能 [{}] 无变化", name);
-//                    }
-//                } else {
-//                    // 新增
-//                    log.info("【新增】技能 [{}]", name);
-//                    prepareDocument(localMeta, sHash, mHash, toAdd);
-//                    stats[0]++;
-//                }
             }
-            skillsDescription = skillsDescription.replace("%s", escapePercent(sb.toString()));
-
-//            // 3. 清理：本地已删除的技能
-//            if (!dbSnapshot.isEmpty()) {
-//                dbSnapshot.forEach((name, info) -> {
-//                    log.info("【清理】本地已删除: {}", name);
-//                    toDelete.add(name);
-//                    stats[3]++;
-//                });
-//            }
-//
-//            // 4. 执行批量操作
-//            executeBatchOperations(toDelete, toAdd, toUpdateMetadata);
-//
-//            // 5. 输出统计
-//            log.info("技能发现完成: 新增={}, 更新内容={}, 更新路径={}, 清理={}, 总变化={}",
-//                    stats[0], stats[1], stats[2], stats[3],
-//                    stats[0] + stats[1] + stats[2] + stats[3]);
-
+            cachedSkillsDescription = buildSkillsDescriptionTemplate(sb.toString());
         } catch (Exception e) {
             log.error("技能发现流程异常", e);
         }

@@ -13,7 +13,6 @@ import reactor.core.publisher.Mono;
 import top.javarem.omni.model.context.AdvisorContextConstants;
 import top.javarem.omni.model.request.ChatRequest;
 import top.javarem.omni.tool.ToolsManager;
-import top.javarem.omni.utils.RequestContextHolder;
 
 import java.util.List;
 import java.util.Map;
@@ -36,9 +35,6 @@ public class ChatController {
 
     @PostMapping("/user/input")
     public String chat(@RequestBody ChatRequest request) {
-        if (request.getWorkspace() != null && !request.getWorkspace().isBlank()) {
-            RequestContextHolder.setWorkspace(request.getWorkspace());
-        }
         try {
             log.info("[SYNC] 用户问题：{}", request.getQuestion());
             String[] allToolNames = toolsManager.getAllToolNames().toArray(new String[0]);
@@ -50,7 +46,10 @@ public class ChatController {
                             .param(AdvisorContextConstants.ENABLE_SKILL, true)
                             .param(AdvisorContextConstants.USER_ID, "zzw")
                     )
-                    .toolContext(Map.of(ChatMemory.CONVERSATION_ID, request.getSessionId(), AdvisorContextConstants.USER_ID, "zzw"))
+                    .toolContext(Map.of(
+                            ChatMemory.CONVERSATION_ID, request.getSessionId(),
+                            AdvisorContextConstants.USER_ID, "zzw",
+                            AdvisorContextConstants.WORKSPACE, request.getWorkspace() != null ? request.getWorkspace() : ""))
                     .call()
                     .content();
 
@@ -59,8 +58,6 @@ public class ChatController {
         } catch (Exception e) {
             log.error("LLM 调用失败，回退到向量分数最高的候选", e);
             return "抱歉，我无法生成答案。";
-        } finally {
-            RequestContextHolder.clear();
         }
     }
 
@@ -70,9 +67,6 @@ public class ChatController {
      */
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> streamChat(@RequestBody ChatRequest request) {
-        if (request.getWorkspace() != null && !request.getWorkspace().isBlank()) {
-            RequestContextHolder.setWorkspace(request.getWorkspace());
-        }
         log.info("[USER] 用户问题：{}", request.getQuestion());
         String[] allToolNames = toolsManager.getAllToolNames().toArray(new String[0]);
 
@@ -88,7 +82,8 @@ public class ChatController {
                                 )
                                 .toolContext(Map.of(
                                         ChatMemory.CONVERSATION_ID, request.getSessionId(),
-                                        AdvisorContextConstants.USER_ID, "zzw"))
+                                        AdvisorContextConstants.USER_ID, "zzw",
+                                        AdvisorContextConstants.WORKSPACE, request.getWorkspace() != null ? request.getWorkspace() : ""))
                                 .stream()
                                 .chatResponse()
                                 .map(response -> {
@@ -96,6 +91,10 @@ public class ChatController {
                                         return "";
                                     }
                                     String text = response.getResult().getOutput().getText();
+                                    // 过滤掉工具调用 JSON，避免暴露内部实现细节
+                                    if (text != null) {
+                                        text = filterToolCallJson(text);
+                                    }
                                     // 返回带换行的文本块，便于前端处理
                                     return text != null ? text : "";
                                 })
@@ -107,8 +106,7 @@ public class ChatController {
                     String errorMsg = extractUserFriendlyMessage(ex);
                     return Flux.just("【系统错误】" + errorMsg);
                 })
-                .doOnComplete(() -> log.info("流式输出完成"))
-                .doFinally(signalType -> RequestContextHolder.clear());
+                .doOnComplete(() -> log.info("流式输出完成"));
     }
 
     /**
@@ -136,5 +134,19 @@ public class ChatController {
             return msg.substring(0, 100) + "...";
         }
         return msg;
+    }
+
+    /**
+     * 过滤掉工具调用 JSON，避免暴露内部实现细节
+     */
+    private String filterToolCallJson(String text) {
+        if (text == null || text.isBlank()) {
+            return text;
+        }
+        // 简单粗暴：移除所有 {..."command"...} 或 {..."name"..."arguments"...} 模式
+        // 使用非贪婪匹配，避免过度贪婪
+        text = text.replaceAll("\\{\\s*\"command\"\\s*:\\s*\"[^\"]*\"\\s*,[^}]*\\}", "");
+        text = text.replaceAll("\\{\\s*\"name\"\\s*:\\s*\"[^\"]*\"\\s*,[^}]*\\}", "");
+        return text.trim();
     }
 }

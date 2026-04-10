@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit;
  * 支持的参数：
  * - description: 任务描述（3-5词），用于并行时识别
  * - prompt: 详细的执行指令
- * - subagent_type: 代理类型（explore/plan/general/code-reviewer/claude-code-guide）
+ * - subagent_type: 代理类型（explore/plan/verification/general/code-reviewer/claude-code-guide）
  * - run_in_background: 是否异步执行
  * - resume: 从之前的 agent ID 恢复
  * - isolation: worktree 隔离模式
@@ -58,46 +58,14 @@ public class AgentToolConfig implements AgentTool {
      * @param resume 从哪个 agent ID 恢复
      * @param isolation 隔离模式（worktree）
      */
-    @Tool(name = "Agent", description = """
-            启动一个新的代理，自主处理复杂、多步骤的任务。
-                    
-            代理工具启动专门的代理（子进程），自主处理复杂任务。
-            每种代理类型都有其特定的功能和可用工具。
-                    
-            可用的代理类型及其可用工具：
-            - explore：用于探索代码库的快速代理。使用 Glob、Grep、Read。（工具：除编辑、写作、抨击外全部）
-            - plan：用于设计实施计划的软件架构代理。（工具：读取、凝聚、Grep、写入、编辑）
-            - 通用：用于研究复杂问题和执行多步骤任务的通用代理。（工具：*）
-            - 代码审查员：用于根据计划和标准审查代码的代理。（工具：Read、Glob、Grep）
-            - claude-code-guide：用于回答关于 Claude Code CLI、SDK 和 API 问题的代理。（工具：WebSearch、WebFetch、Read）
-                    
-            ## 参数
-            - 描述：简短的任务名称（3-5 个单词），用于并行识别
-            - 提示词：对子代理的详细说明
-            - subagent_type：代理类型选择（默认：通用）
-            - run_in_background：设为真以示异步执行（默认：false）
-            - 恢复：用于继续之前任务的代理 ID。
-            - 隔离：将“worktree”设置为 git 工作树隔离
-                    
-            ## 用途
-            1. 调用带有任务描述和代理类型的 launchAgent
-            2. 接收任务 ID
-            3. 轮询 agentOutput（带有 taskId）以获取结果
-                    
-            使用时间：
-            - 复杂且多步骤的任务，可以独立运行
-            - 需要不同专业知识的任务（探索与规划）
-            - 相关子任务的并行处理
-                    
-            何时不宜使用：
-            - 简单文件读取（直接使用读取工具）
-            - 简单类定义（使用 Glob 工具）
-            - 在 2-3 个文件中搜索（直接使用 Grep 工具）
-        """)
+    @Tool(name = "Agent", description = "启动一个新的代理，自主处理复杂、多步骤的任务。" +
+            "代理工具启动专门的代理（子进程），自主处理复杂任务。每种代理类型都有其特定的功能和可用工具。" +
+            "可用的代理类型: explore（代码探索 One-Shot）, plan（计划制定 One-Shot）, " +
+            "verification（验收测试）, general（通用）, code-reviewer（代码审查）, claude-code-guide（Claude Code 指南）")
     public String launchAgent(
             @ToolParam(description = "Task name (3-5 words) for parallel identification") String description,
             @ToolParam(description = "Detailed instructions for the sub-agent") String prompt,
-            @ToolParam(description = "Agent type: explore/plan/general/code-reviewer/claude-code-guide", required = false) String subagentType,
+            @ToolParam(description = "Agent type: explore/plan/verification/general/code-reviewer/claude-code-guide", required = false) String subagentType,
             @ToolParam(description = "Run asynchronously in background", required = false) Boolean runInBackground,
             @ToolParam(description = "Agent ID to resume from", required = false) String resume,
             @ToolParam(description = "Isolation mode: worktree", required = false) String isolation,
@@ -125,101 +93,96 @@ public class AgentToolConfig implements AgentTool {
 
         // 处理 worktree 隔离
         Path worktreePath = null;
-        final String currentTaskId = java.util.UUID.randomUUID().toString();
+
+        // 构建任务 - 先创建 callable（需要 taskId）
+        // 注意：taskId 必须先从 registry 获取，以确保 registry 和 factory 使用同一个 ID
+        Callable<AgentResult> callable;
 
         if ("worktree".equalsIgnoreCase(isolation)) {
             try {
+                // 生成临时 taskId 用于创建 worktree 目录
+                String tempTaskId = java.util.UUID.randomUUID().toString();
                 Path basePath = Path.of(System.getProperty("user.dir"));
-                worktreePath = worktreeManager.createWorktree(currentTaskId, description != null ? description : "task", basePath);
-                log.info("[AgentTool] Worktree created: taskId={}, path={}", currentTaskId, worktreePath);
+                worktreePath = worktreeManager.createWorktree(tempTaskId, description != null ? description : "task", basePath);
+                log.info("[AgentTool] Worktree created: taskId={}, path={}", tempTaskId, worktreePath);
+
+                final Path finalWorktreePath = worktreePath;
+                final String taskIdForLambda = tempTaskId;
+                callable = () -> factory.execute(
+                        taskIdForLambda,
+                        type,
+                        prompt,
+                        "agent-" + taskIdForLambda,
+                        userId,
+                        resumeFromTaskId,
+                        finalWorktreePath
+                );
             } catch (Exception e) {
                 log.error("[AgentTool] Failed to create worktree: {}", e.getMessage());
+                callable = () -> {
+                    throw new IllegalStateException("Failed to create worktree: " + e.getMessage());
+                };
             }
+        } else {
+            final String taskIdForLambda = java.util.UUID.randomUUID().toString();
+            final Path finalWorktreePath = worktreePath;
+            callable = () -> factory.execute(
+                    taskIdForLambda,
+                    type,
+                    prompt,
+                    "agent-" + taskIdForLambda,
+                    userId,
+                    resumeFromTaskId,
+                    finalWorktreePath
+            );
         }
-
-        // 构建任务 - 使用 final 引用
-        final Path finalWorktreePath = worktreePath;
-        final String taskIdForLambda = currentTaskId;
-        Callable<AgentResult> callable = () -> factory.execute(
-                taskIdForLambda,
-                type,
-                prompt,
-                "agent-" + taskIdForLambda,
-                userId,
-                resumeFromTaskId,
-                finalWorktreePath
-        );
 
         // 提交任务
         java.util.concurrent.Future<AgentResult> future = executor.submit(callable);
 
-        // 注册任务
+        // 注册任务并获取 registry 生成的 taskId（用于后续查询）
+        final String registeredTaskId;
         if (worktreePath != null) {
-            registry.registerWithWorktree(future, userId, sessionId, type.getValue(), description, prompt, worktreePath.toString());
+            registeredTaskId = registry.registerWithWorktree(future, userId, sessionId, type.getValue(), description, prompt, worktreePath.toString());
         } else {
-            registry.register(future, userId, sessionId, type.getValue(), description, prompt);
+            registeredTaskId = registry.register(future, userId, sessionId, type.getValue(), description, prompt);
         }
 
         // 建立 resume 链
         if (resumeFromTaskId != null) {
-            registry.linkResume(resumeFromTaskId, taskIdForLambda);
+            registry.linkResume(resumeFromTaskId, registeredTaskId);
         }
 
         if (isBackground) {
             // 异步模式：立即返回
-            return """
-                ✅ 子 Agent 已在后台启动
-
-                task_id: %s
-                agent_type: %s
-                description: %s
-                status: running
-                isolation: %s
-
-                使用 agentOutput 工具查询结果：
-                agentOutput(taskId="%s", block=false)
-                """.formatted(currentTaskId, type.getValue(), description != null ? description : "N/A",
-                    isolation != null ? isolation : "none", currentTaskId);
+            return "\u2705 子 Agent 已在后台启动\n\n" +
+                    "task_id: " + registeredTaskId + "\n" +
+                    "agent_type: " + type.getValue() + "\n" +
+                    "description: " + (description != null ? description : "N/A") + "\n" +
+                    "status: running\n" +
+                    "isolation: " + (isolation != null ? isolation : "none") + "\n\n" +
+                    "使用 agentOutput 工具查询结果：\n" +
+                    "agentOutput(taskId=\"" + registeredTaskId + "\", block=false)";
         } else {
             // 同步模式：等待完成
-            return """
-                ⏳ 子 Agent 任务已提交
-
-                task_id: %s
-                agent_type: %s
-                description: %s
-                status: running
-
-                使用 agentOutput 工具查询结果：
-                agentOutput(taskId="%s", block=false)
-
-                或直接阻塞等待：
-                agentOutput(taskId="%s", block=true, timeout=180000)
-                """.formatted(currentTaskId, type.getValue(), description != null ? description : "N/A",
-                    currentTaskId, currentTaskId);
+            return "\u23f3 子 Agent 任务已提交\n\n" +
+                    "task_id: " + registeredTaskId + "\n" +
+                    "agent_type: " + type.getValue() + "\n" +
+                    "description: " + (description != null ? description : "N/A") + "\n" +
+                    "status: running\n\n" +
+                    "使用 agentOutput 工具查询结果：\n" +
+                    "agentOutput(taskId=\"" + registeredTaskId + "\", block=false)\n\n" +
+                    "或直接阻塞等待：\n" +
+                    "agentOutput(taskId=\"" + registeredTaskId + "\", block=true, timeout=180000)";
         }
     }
 
     /**
      * 获取子 Agent 输出
      */
-    @Tool(name = "agentOutput", description = """
-        Get output from a running or completed sub-agent task.
-
-        ## Parameters
-        - task_id: The agent task ID returned by launchAgent
-        - block: Wait for completion (default: false)
-        - timeout: Max wait time in ms (default: 180000 = 3 minutes)
-
-        ## Status Values
-        - running: Task is still executing
-        - completed: Task finished successfully
-        - failed: Task encountered an error
-        - not_found: Task ID does not exist
-
-        ## Resume
-        To continue a completed task, use the returned task_id as the resume parameter in launchAgent.
-        """)
+    @Tool(name = "agentOutput", description = "Get output from a running or completed sub-agent task. " +
+            "Parameters: task_id (required), block (default false), timeout (default 180000ms). " +
+            "Status: running=still executing, completed=finished successfully, failed=error, not_found=ID not exist.")
     public String agentOutput(
             @ToolParam(description = "Agent task ID") String taskId,
             @ToolParam(description = "Block until completion", required = false) Boolean block,
@@ -231,12 +194,12 @@ public class AgentToolConfig implements AgentTool {
 
         // 权限校验
         if (!registry.isOwner(taskId, userId, sessionId)) {
-            return "❌ 无权访问该任务或任务不存在";
+            return "\u274c 无权访问该任务或任务不存在";
         }
 
         AgentTaskRegistry.AgentTaskRecord record = registry.get(taskId);
         if (record == null) {
-            return "❌ 任务不存在: " + taskId;
+            return "\u274c 任务不存在: " + taskId;
         }
 
         boolean shouldBlock = block != null && block;
@@ -274,7 +237,7 @@ public class AgentToolConfig implements AgentTool {
                 }
             }
         } catch (java.util.concurrent.TimeoutException e) {
-            return "⏳ 任务执行超时 (timeout=" + waitTimeout + "ms)\n\n" +
+            return "\u23f3 任务执行超时 (timeout=" + waitTimeout + "ms)\n\n" +
                     formatRunningStatus(taskId, record);
         } catch (Exception e) {
             log.error("[AgentTool] 获取任务结果失败: taskId={}, error={}", taskId, e.getMessage(), e);
@@ -286,54 +249,55 @@ public class AgentToolConfig implements AgentTool {
             }
 
             registry.remove(taskId);
-            return "❌ 任务执行失败: " + e.getMessage();
+            return "\u274c 任务执行失败: " + e.getMessage();
         }
     }
 
     private String formatRunningStatus(String taskId, AgentTaskRegistry.AgentTaskRecord record) {
-        return """
-                ⏳ 任务仍在执行中...
+        long elapsedMs = System.currentTimeMillis() - record.createdAt();
+        long elapsedSec = elapsedMs / 1000;
+        String elapsedStr = elapsedSec < 60
+            ? elapsedSec + "s"
+            : (elapsedSec / 60) + "m " + (elapsedSec % 60) + "s";
 
-                task_id: %s
-                agent_type: %s
-                description: %s
-                status: running
-                """.formatted(taskId, record.agentType(), record.description());
+        return "\u23f3 任务仍在执行中...\n\n" +
+                "task_id: " + taskId + "\n" +
+                "agent_type: " + record.agentType() + "\n" +
+                "description: " + record.description() + "\n" +
+                "status: running\n" +
+                "elapsed: " + elapsedStr + "\n\n" +
+                "使用 agentOutput(taskId=\"" + taskId + "\", block=true) 阻塞等待完成";
     }
 
     private String formatResult(AgentResult result) {
         if (result == null) {
-            return "❌ 任务结果为空";
+            return "\u274c 任务结果为空";
         }
 
-        return switch (result.status()) {
-            case "completed" -> {
-                StringBuilder sb = new StringBuilder();
-                sb.append("✅ 子 Agent 任务完成\n\n");
-                sb.append("task_id: ").append(result.taskId()).append("\n");
-                sb.append("agent_type: ").append(result.agentType()).append("\n");
-                sb.append("duration: ").append(result.durationMs()).append("ms\n");
-                if (result.worktreePath() != null) {
-                    sb.append("worktree: ").append(result.worktreePath()).append("\n");
-                }
-                sb.append("\n--- 输出内容 ---\n");
-                sb.append(result.output());
-                yield sb.toString();
+        StringBuilder sb = new StringBuilder();
+        if ("completed".equals(result.status())) {
+            sb.append("\u2705 子 Agent 任务完成\n\n");
+            sb.append("task_id: ").append(result.taskId()).append("\n");
+            sb.append("agent_type: ").append(result.agentType()).append("\n");
+            sb.append("duration: ").append(result.durationMs()).append("ms\n");
+            if (result.worktreePath() != null) {
+                sb.append("worktree: ").append(result.worktreePath()).append("\n");
             }
-            case "failed" -> {
-                StringBuilder sb = new StringBuilder();
-                sb.append("❌ 子 Agent 任务失败\n\n");
-                sb.append("task_id: ").append(result.taskId()).append("\n");
-                sb.append("agent_type: ").append(result.agentType()).append("\n");
-                if (result.worktreePath() != null) {
-                    sb.append("worktree: ").append(result.worktreePath()).append("\n");
-                }
-                sb.append("\n--- 错误信息 ---\n");
-                sb.append(result.error());
-                yield sb.toString();
+            sb.append("\n--- 输出内容 ---\n");
+            sb.append(result.output());
+        } else if ("failed".equals(result.status())) {
+            sb.append("\u274c 子 Agent 任务失败\n\n");
+            sb.append("task_id: ").append(result.taskId()).append("\n");
+            sb.append("agent_type: ").append(result.agentType()).append("\n");
+            if (result.worktreePath() != null) {
+                sb.append("worktree: ").append(result.worktreePath()).append("\n");
             }
-            default -> "❌ 未知状态: " + result.status();
-        };
+            sb.append("\n--- 错误信息 ---\n");
+            sb.append(result.error());
+        } else {
+            sb.append("\u274c 未知状态: ").append(result.status());
+        }
+        return sb.toString();
     }
 
     private String extractUserId(ToolContext toolContext) {

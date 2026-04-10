@@ -141,4 +141,85 @@ describe('completeCodeBlock', () => {
 
     expect(result).toBe(content);
   });
+
+  describe('incomplete headings', () => {
+    it('appends space to incomplete heading (## without text)', () => {
+      const content = 'Some text\n##';
+      const result = completeCodeBlock(content);
+
+      expect(result).toBe('Some text\n## ');
+    });
+
+    it('appends space to incomplete heading with space (##  without text)', () => {
+      const content = 'Some text\n## ';
+      const result = completeCodeBlock(content);
+
+      expect(result).toBe('Some text\n##  ');
+    });
+
+    it('does not modify complete heading', () => {
+      const content = '## Complete Heading';
+      const result = completeCodeBlock(content);
+
+      expect(result).toBe(content);
+    });
+
+    it('does not modify heading with newline after', () => {
+      const content = '## Heading\nSome text';
+      const result = completeCodeBlock(content);
+
+      expect(result).toBe(content);
+    });
+
+    it('handles multiple heading levels', () => {
+      const content = '###';
+      const result = completeCodeBlock(content);
+
+      expect(result).toBe('### ');
+    });
+  });
+
+  describe('incomplete list items', () => {
+    it('appends space to incomplete unordered list', () => {
+      const content = '-';
+      const result = completeCodeBlock(content);
+
+      expect(result).toBe('- ');
+    });
+
+    it('appends space to incomplete unordered list with marker', () => {
+      const content = '- ';
+      const result = completeCodeBlock(content);
+
+      expect(result).toBe('-  ');
+    });
+
+    it('appends space to incomplete ordered list', () => {
+      const content = '1.';
+      const result = completeCodeBlock(content);
+
+      expect(result).toBe('1. ');
+    });
+
+    it('appends space to incomplete ordered list with marker', () => {
+      const content = '1. ';
+      const result = completeCodeBlock(content);
+
+      expect(result).toBe('1.  ');
+    });
+
+    it('does not modify complete list item', () => {
+      const content = '- Complete item';
+      const result = completeCodeBlock(content);
+
+      expect(result).toBe(content);
+    });
+
+    it('does not modify complete ordered list item', () => {
+      const content = '1. Complete item';
+      const result = completeCodeBlock(content);
+
+      expect(result).toBe(content);
+    });
+  });
 });

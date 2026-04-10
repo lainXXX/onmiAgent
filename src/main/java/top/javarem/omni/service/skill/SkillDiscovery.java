@@ -9,7 +9,6 @@ import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
 import top.javarem.omni.model.skill.*;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
@@ -29,14 +28,8 @@ public class SkillDiscovery {
     @Value("${skill.discovery.root:file:${user.home}/.omni}")
     private String skillRootPath;
 
-    @Value("${skill.discovery.path:skills/**/SKILL.md}")
-    private String skillPathTemplate;
-
     @Value("${skill.discovery.sources.bundled.enabled:true}")
     private boolean bundledEnabled;
-
-    @Value("${skill.discovery.sources.bundled.path:classpath:/skills/}")
-    private String bundledPath;
 
     @Value("${skill.discovery.sources.user.enabled:true}")
     private boolean userEnabled;
@@ -80,22 +73,17 @@ public class SkillDiscovery {
                 continue;
             }
 
-            // BUNDLED 使用 ResourcePatternResolver，其他使用 Files.exists()
-            if (source == SkillSource.BUNDLED) {
-                DiscoveredSkill discovered = discoverBundled(normalizedName);
-                if (discovered != null) {
-                    skillCache.put(normalizedName, discovered);
-                    return discovered;
-                }
+            DiscoveredSkill discovered = null;
+
+            if (source.isBundled()) {
+                discovered = discoverBundled(skillName);
             } else {
-                Path path = buildPath(source, normalizedName);
-                if (path != null && Files.exists(path)) {
-                    DiscoveredSkill discovered = parseSkill(source, path);
-                    if (discovered != null) {
-                        skillCache.put(normalizedName, discovered);
-                        return discovered;
-                    }
-                }
+                discovered = discoverFromPath(source, skillName);
+            }
+
+            if (discovered != null) {
+                skillCache.put(normalizedName, discovered);
+                return discovered;
             }
         }
 
@@ -134,10 +122,21 @@ public class SkillDiscovery {
     }
 
     /**
+     * 从文件系统路径发现
+     */
+    private DiscoveredSkill discoverFromPath(SkillSource source, String skillName) {
+        Path path = buildSkillPath(source, skillName);
+        if (path != null && Files.exists(path)) {
+            return parseSkill(source, path);
+        }
+        return null;
+    }
+
+    /**
      * 使用 ResourcePatternResolver 发现 BUNDLED 资源
      */
     private DiscoveredSkill discoverBundled(String skillName) {
-        String pattern = "classpath:/skills/" + skillName + "/SKILL.md";
+        String pattern = SkillSource.BUNDLED.getBundledBase() + skillName + "/SKILL.md";
         try {
             org.springframework.core.io.Resource[] resources =
                 resourcePatternResolver.getResources(pattern);
@@ -149,6 +148,59 @@ public class SkillDiscovery {
             log.debug("[SkillDiscovery] BUNDLED 发现失败: pattern={}", pattern, e);
         }
         return null;
+    }
+
+    /**
+     * 构建 Skill 文件路径
+     */
+    private Path buildSkillPath(SkillSource source, String skillName) {
+        if (source.isBundled()) {
+            return null; // BUNDLED 不走此路径
+        }
+
+        String root = resolveRootPath();
+        String relativePath = source.getRelativeFilePath(skillName);
+
+        return Paths.get(root, relativePath);
+    }
+
+    /**
+     * 构建 glob 搜索模式
+     */
+    private String buildGlobPattern(SkillSource source) {
+        if (source.isBundled()) {
+            return SkillSource.BUNDLED.getBundledBase() + "**/SKILL.md";
+        }
+
+        String root = resolveRootPath();
+        return root + source.getRelativePath() + "/**/SKILL.md";
+    }
+
+    /**
+     * 解析 root 路径，处理 ${user.home} 和 file: 前缀
+     */
+    private String resolveRootPath() {
+        String root = skillRootPath;
+
+        // 处理 Spring 未解析的 ${user.home}
+        if (root.contains("${user.home}")) {
+            root = root.replace("${user.home}", System.getProperty("user.home"));
+        }
+
+        // 去除 file: 前缀（如果是 file: 开头的 URI）
+        if (root.startsWith("file:")) {
+            root = root.substring(5);
+        }
+
+        // 标准化路径分隔符
+        root = root.replace("\\", "/");
+
+        // 确保末尾有 /
+        if (!root.endsWith("/")) {
+            root += "/";
+        }
+
+        return root;
     }
 
     /**
@@ -256,57 +308,6 @@ public class SkillDiscovery {
             case USER -> userEnabled;
             case PROJECT -> projectEnabled;
             case MANAGED -> managedEnabled;
-        };
-    }
-
-    private Path buildPath(SkillSource source, String skillName) {
-        // 解析 ${user.home} 并去除 file: 前缀
-        String resolvedRoot = resolveRootPath();
-
-        return switch (source) {
-            // BUNDLED 使用 discoverBundled() 方法，不走此路径
-            case USER -> Paths.get(resolvedRoot, "skills", skillName, "SKILL.md");
-            case PROJECT -> Paths.get(".claude/skills", skillName, "SKILL.md");
-            case MANAGED -> Paths.get(resolvedRoot, ".claude/skills", skillName, "SKILL.md");
-            default -> null;
-        };
-    }
-
-    /**
-     * 解析 root 路径，处理 ${user.home} 和 file: 前缀
-     */
-    private String resolveRootPath() {
-        String root = skillRootPath;
-
-        // 处理 Spring 未解析的 ${user.home}
-        if (root.contains("${user.home}")) {
-            root = root.replace("${user.home}", System.getProperty("user.home"));
-        }
-
-        // 去除 file: 前缀（如果是 file: 开头的 URI）
-        if (root.startsWith("file:")) {
-            root = root.substring(5);
-        }
-
-        // 标准化路径分隔符
-        root = root.replace("\\", "/");
-
-        // 确保末尾有 /
-        if (!root.endsWith("/")) {
-            root += "/";
-        }
-
-        return root;
-    }
-
-    private String buildGlobPattern(SkillSource source) {
-        String root = resolveRootPath();
-
-        return switch (source) {
-            case BUNDLED -> bundledPath + "**/SKILL.md";
-            case USER -> root + "skills/**/SKILL.md";
-            case PROJECT -> ".claude/skills/**/SKILL.md";
-            case MANAGED -> root + ".claude/skills/**/SKILL.md";
         };
     }
 

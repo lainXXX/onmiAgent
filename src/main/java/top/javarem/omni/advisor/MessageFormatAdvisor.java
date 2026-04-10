@@ -16,7 +16,6 @@ import top.javarem.omni.loader.SystemMessageLoader;
 import top.javarem.omni.model.context.AdvisorContextConstants;
 import top.javarem.omni.loader.SkillLoader;
 import top.javarem.omni.repository.chat.MemoryRepository;
-import top.javarem.omni.utils.ThreadLocalUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,14 +74,6 @@ public class MessageFormatAdvisor implements BaseAdvisor {
 
     @Override
     public ChatClientResponse after(ChatClientResponse response, AdvisorChain advisorChain) {
-        try {
-            List<Message> toolMessages = ThreadLocalUtil.get("TOOL_INTERACTION_MESSAGES");
-            response.context().put("TOOL_INTERACTION_MESSAGES", toolMessages);
-        } finally {
-            // 🔥 强制清理！强制清理！强制清理！
-            // 为了防止 Tomcat 线程池复用导致下一个用户的请求读到当前用户的数据，必须清理！
-            ThreadLocalUtil.clear();
-        }
         return response;
     }
 

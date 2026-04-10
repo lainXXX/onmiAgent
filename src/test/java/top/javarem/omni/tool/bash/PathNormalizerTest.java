@@ -49,4 +49,28 @@ class PathNormalizerTest {
         String normalized = normalizer.normalize("D:\\workspace\\src\\main");
         assertEquals("D:/workspace/src/main", normalized);
     }
+
+    @Test
+    void shouldConvertGitBashPathToWindows() {
+        // /c/Users/... -> C:/Users/...
+        String normalized = normalizer.normalize("/c/Users/test/workspace");
+        assertEquals("C:/Users/test/workspace", normalized);
+    }
+
+    @Test
+    void shouldAllowGitBashPathInsideWorkspace() {
+        // Git Bash path within workspace should be allowed
+        // Note: This only works if workspace is on C: drive since /c/ maps to C:
+        PathNormalizer cDriveNormalizer = new PathNormalizer("C:/workspace");
+        assertDoesNotThrow(() -> cDriveNormalizer.validate("/c/workspace/src/main"));
+    }
+
+    @Test
+    void shouldRejectGitBashPathOutsideWorkspace() {
+        // Git Bash path outside workspace should be rejected
+        PathNormalizer cDriveNormalizer = new PathNormalizer("C:/workspace");
+        SecurityException ex = assertThrows(SecurityException.class,
+            () -> cDriveNormalizer.validate("/c/etc/passwd"));
+        assertTrue(ex.getMessage().contains("WORKSPACE"));
+    }
 }

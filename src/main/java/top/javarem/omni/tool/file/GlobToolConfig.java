@@ -115,8 +115,10 @@ public class GlobToolConfig implements AgentTool {
      */
     private PathCheckResult resolveAndCheckPath(String relativePath) {
         try {
+            // 先标准化 Git Bash 风格路径
+            String normalizedPath = normalizeGitBashPath(relativePath);
             Path base = Paths.get(WORKSPACE);
-            Path resolved = base.resolve(relativePath).normalize();
+            Path resolved = base.resolve(normalizedPath).normalize();
 
             return new PathCheckResult(true, resolved, null);
 
@@ -302,5 +304,26 @@ public class GlobToolConfig implements AgentTool {
      * 路径检查结果
      */
     private record PathCheckResult(boolean approved, Path resolvedPath, String errorMessage) {
+    }
+
+    /**
+     * 标准化路径，将 Git Bash 风格路径转换为 Windows 原生路径
+     *
+     * <p>问题来源：Git Bash 使用 /c/Users/aaa 风格路径，
+     * 直接传给 Paths.get() 会变成 D:\c\Users\aaa（错误）。</p>
+     */
+    private String normalizeGitBashPath(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+
+        // Git Bash 风格路径检测：/c/... 或 /d/... 等（Unix风格但指向Windows盘符）
+        if (path.matches("^/[a-z]/.*") || path.matches("^/[A-Z]/.*")) {
+            char drive = path.charAt(1);
+            String rest = path.substring(3).replace("/", "\\");
+            return drive + ":\\" + rest;
+        }
+
+        return path;
     }
 }

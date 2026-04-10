@@ -105,12 +105,37 @@ export function parseMessageContent(raw: string): ParsedContent {
 }
 
 /**
- * Completes an incomplete code block by appending closing ```
+ * Completes incomplete Markdown structures for streaming display.
+ * - Code blocks: appends closing ``` if odd number
+ * - Headings: appends trailing space if heading marker is incomplete
+ * - List items: appends trailing space if list marker is incomplete
  */
 export function completeCodeBlock(content: string): string {
-  const codeBlockCount = (content.match(/```/g) || []).length;
+  let result = content;
+
+  // Complete incomplete code blocks
+  const codeBlockCount = (result.match(/```/g) || []).length;
   if (codeBlockCount % 2 !== 0) {
-    return content + '\n```';
+    result = result + '\n```';
   }
-  return content;
+
+  const lines = result.split('\n');
+  const lastLine = lines[lines.length - 1];
+
+  // Complete incomplete ATX headings
+  // A valid heading needs: "## text" or "##\n", but NOT just "##" at end of line
+  // Match: starts with 1-6 #, followed by only optional whitespace at end of content
+  if (/^#{1,6}(\s*)$/.test(lastLine) && !lastLine.match(/^#{1,6}\s+\S/)) {
+    lines[lines.length - 1] = lastLine + ' ';
+    result = lines.join('\n');
+  }
+
+  // Complete incomplete list items
+  // Match: "- " or "1. " or "* " etc. without any text after
+  if (/^(\s*)([-*+]|\d+\.)\s*$/.test(lastLine) && !lastLine.match(/^(\s*)([-*+]|\d+\.)\s+\S/)) {
+    lines[lines.length - 1] = lastLine + ' ';
+    result = lines.join('\n');
+  }
+
+  return result;
 }

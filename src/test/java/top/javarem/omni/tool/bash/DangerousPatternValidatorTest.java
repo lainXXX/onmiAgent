@@ -1,13 +1,22 @@
 package top.javarem.omni.tool.bash;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
 import static org.junit.jupiter.api.Assertions.*;
 
 class DangerousPatternValidatorTest {
 
-    private final DangerousPatternValidator validator = new DangerousPatternValidator();
+    private DangerousPatternValidator validator;
+
+    @BeforeEach
+    void setUp() {
+        Resource resource = new ClassPathResource("test-commands.properties");
+        validator = new DangerousPatternValidator(resource);
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {

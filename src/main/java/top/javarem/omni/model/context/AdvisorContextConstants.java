@@ -13,6 +13,8 @@ public final class AdvisorContextConstants {
 
     public static final String USER_ID = "userId";
 
+    public static final String WORKSPACE = "workspace";
+
     public enum Phase {
         INITIAL_REQUEST,    // 1. 初始请求阶段（第一次进来，还没问模型）
         MODEL_THINKING,     // 2. 模型思考中（已发出请求，等待模型决定是否要调工具）
