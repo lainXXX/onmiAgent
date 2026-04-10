@@ -6,11 +6,17 @@ import org.springframework.stereotype.Component;
 /**
  * Bash 响应格式化器
  *
- * <p>一体化输出处理：ANSI过滤、截断、错误/成功信息构建。</p>
+ * <p>一体化输出处理：ANSI过滤、截断、错误/成功信息构建、退出码语义解释。</p>
  */
 @Component
 @Slf4j
 public class ResponseFormatter {
+
+    private final CommandSemantics commandSemantics;
+
+    public ResponseFormatter(CommandSemantics commandSemantics) {
+        this.commandSemantics = commandSemantics;
+    }
 
     /**
      * 格式化成功响应
@@ -45,11 +51,39 @@ public class ResponseFormatter {
     }
 
     /**
-     * 格式化执行失败响应
+     * 格式化执行失败响应（带退出码语义解释）
      */
     public String formatError(String rawOutput, int exitCode) {
+        return formatError(rawOutput, exitCode, null);
+    }
+
+    /**
+     * 格式化执行失败响应（带退出码语义解释）
+     *
+     * @param rawOutput 原始输出
+     * @param exitCode 退出码
+     * @param command 原始命令（用于语义解释）
+     */
+    public String formatError(String rawOutput, int exitCode, String command) {
         String cleaned = rawOutput != null ? stripAnsi(rawOutput) : "(无输出)";
         String truncated = truncateIfNeeded(cleaned);
+
+        String semantic = null;
+        if (command != null && commandSemantics != null) {
+            semantic = commandSemantics.interpret(command, exitCode, rawOutput);
+        }
+
+        if (semantic != null) {
+            return String.format("""
+                ❌ %s
+
+                退出码: %d
+                语义: %s
+
+                输出:
+                %s
+                """, "命令执行失败", exitCode, semantic, truncated);
+        }
 
         return String.format("""
             ❌ 命令执行失败

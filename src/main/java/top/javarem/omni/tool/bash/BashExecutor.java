@@ -19,7 +19,7 @@ import java.util.concurrent.*;
  * Bash 命令执行器
  *
  * <p>集成了安全拦截、进程注册、ProcessHandle 生命周期管理、
- * 线程池执行、字符集处理和 stderr 合并。</p>
+ * 共享线程池、字符集处理和 stderr 合并。</p>
  */
 @Component
 @Slf4j
@@ -36,8 +36,17 @@ public class BashExecutor {
 
     private final ProcessTreeKiller processKiller = new ProcessTreeKiller();
 
+    /**
+     * 共享线程池，用于输出读取
+     * 替代每次执行创建新的 ExecutorService，避免资源泄漏
+     */
     @Autowired(required = false)
     private ThreadPoolTaskExecutor taskExecutor;
+
+    /**
+     * 当 taskExecutor 不可用时的降级共享线程池
+     */
+    private volatile ExecutorService sharedExecutor;
 
     private volatile String detectedShell;
     private volatile boolean shellDetected = false;
@@ -47,6 +56,28 @@ public class BashExecutor {
         detectBash();
     }
 
+    private ExecutorService getOrCreateExecutor() {
+        if (taskExecutor != null) {
+            return taskExecutor.getThreadPoolExecutor();
+        }
+        if (sharedExecutor == null) {
+            synchronized (this) {
+                if (sharedExecutor == null) {
+                    sharedExecutor = new ThreadPoolExecutor(
+                        2, 4, 60L, TimeUnit.SECONDS,
+                        new LinkedBlockingQueue<>(100),
+                        r -> {
+                            Thread t = new Thread(r, "bash-output-reader");
+                            t.setDaemon(true);
+                            return t;
+                        }
+                    );
+                }
+            }
+        }
+        return sharedExecutor;
+    }
+
     /**
      * 执行命令（同步等待结果）
      */
@@ -54,7 +85,7 @@ public class BashExecutor {
         SecurityInterceptor.CheckResult check = securityInterceptor.check(command);
         switch (check.type()) {
             case DENY:
-                return formatter.formatError("安全拦截: " + check.message(), -1);
+                return formatter.formatError("安全拦截: " + check.message(), -1, command);
             case PENDING:
                 return formatter.formatPending(check.ticketId(), check.message());
             case ALLOW:
@@ -69,7 +100,7 @@ public class BashExecutor {
     public String executeBackground(String command) throws Exception {
         SecurityInterceptor.CheckResult check = securityInterceptor.check(command);
         if (check.type() == SecurityInterceptor.CheckResult.Type.DENY) {
-            return formatter.formatError("安全拦截: " + check.message(), -1);
+            return formatter.formatError("安全拦截: " + check.message(), -1, command);
         }
         if (check.type() == SecurityInterceptor.CheckResult.Type.PENDING) {
             return formatter.formatPending(check.ticketId(), check.message());
@@ -100,7 +131,7 @@ public class BashExecutor {
 
         Charset charset = detectCharset();
         StringBuilder output = new StringBuilder();
-        ExecutorService readerExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService readerExecutor = getOrCreateExecutor();
 
         Future<?> readerFuture = readerExecutor.submit(() -> {
             try (BufferedReader reader = new BufferedReader(
@@ -129,16 +160,15 @@ public class BashExecutor {
             readerFuture.get(1, TimeUnit.SECONDS);
         } catch (TimeoutException | ExecutionException e) {
             // Ignore — process already done
-        } finally {
-            readerExecutor.shutdownNow();
-            processRegistry.unregister(pid);
         }
+
+        processRegistry.unregister(pid);
 
         int exitCode = process.exitValue();
         if (exitCode == 0) {
             return formatter.formatSuccess(rawOutput);
         } else {
-            return formatter.formatError(rawOutput, exitCode);
+            return formatter.formatError(rawOutput, exitCode, command);
         }
     }
 
