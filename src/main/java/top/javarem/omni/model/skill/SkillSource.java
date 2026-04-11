@@ -5,24 +5,38 @@ package top.javarem.omni.model.skill;
  * 按优先级排序（数字越小优先级越高）
  */
 public enum SkillSource {
+    /**
+     * 内置技能 - 从 classpath 加载
+     * 路径: classpath:/skills/{skillName}/SKILL.md
+     */
     BUNDLED("bundled", 0, "classpath:/skills/"),
-    MANAGED("managed", 1, null),
-    USER("user", 2, null),
-    PROJECT("project", 3, null);
+
+    /**
+     * 托管技能 - 用户级别共享技能
+     * 路径: {userHome}/.omni/.claude/skills/{skillName}/SKILL.md
+     */
+    MANAGED("managed", 1, ".claude/skills"),
+
+    /**
+         * 用户技能 - 用户个人技能
+     * 路径: {userHome}/.omni/skills/{skillName}/SKILL.md
+     */
+    USER("user", 2, "skills"),
+
+    /**
+     * 项目技能 - 跟随项目的技能
+     * 路径: {projectRoot}/.claude/skills/{skillName}/SKILL.md
+     */
+    PROJECT("project", 3, ".claude/skills");
 
     private final String name;
     private final int priority;
-    private final String bundledBase;  // BUNDLED 的 classpath 基础路径
+    private final String pathPrefix;  // 路径前缀（BUNDLED 用 classpath，其他用相对路径）
 
-    // 各自的相对路径模板（相对于 skillRootPath 或项目根目录）
-    private static final String MANAGED_RELATIVE = ".claude/skills";
-    private static final String USER_RELATIVE = "skills";
-    private static final String PROJECT_RELATIVE = ".claude/skills";
-
-    SkillSource(String name, int priority, String bundledBase) {
+    SkillSource(String name, int priority, String pathPrefix) {
         this.name = name;
         this.priority = priority;
-        this.bundledBase = bundledBase;
+        this.pathPrefix = pathPrefix;
     }
 
     public String getName() {
@@ -34,35 +48,39 @@ public enum SkillSource {
     }
 
     /**
-     * 获取 BUNDLED 的 classpath 基础路径
+     * 获取路径前缀
+     * BUNDLED 返回 classpath:/skills/
+     * 其他返回相对路径（如 skills、.claude/skills）
      */
-    public String getBundledBase() {
-        return bundledBase;
+    public String getPathPrefix() {
+        return pathPrefix;
     }
 
     /**
-     * 获取相对路径（用于拼接 rootPath）
-     */
-    public String getRelativePath() {
-        return switch (this) {
-            case BUNDLED -> bundledBase;  // 不使用
-            case MANAGED -> MANAGED_RELATIVE;
-            case USER -> USER_RELATIVE;
-            case PROJECT -> PROJECT_RELATIVE;
-        };
-    }
-
-    /**
-     * 获取单个文件的相对路径
-     */
-    public String getRelativeFilePath(String skillName) {
-        return getRelativePath() + "/" + skillName + "/SKILL.md";
-    }
-
-    /**
-     * 判断是否为内置来源
+     * 判断是否为内置来源（BUNDLED）
      */
     public boolean isBundled() {
         return this == BUNDLED;
+    }
+
+    /**
+     * 获取单个文件的相对路径（不含 root 前缀）
+     */
+    public String getRelativeFilePath(String skillName) {
+        return pathPrefix + "/" + skillName + "/SKILL.md";
+    }
+
+    /**
+     * 判断是否为需要 userHome 的来源
+     */
+    public boolean needsUserHome() {
+        return this == MANAGED || this == USER;
+    }
+
+    /**
+     * 判断是否为项目级别的来源
+     */
+    public boolean isProjectLevel() {
+        return this == PROJECT;
     }
 }
