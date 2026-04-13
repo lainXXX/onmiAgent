@@ -95,6 +95,15 @@ spring:
           model: MiniMax-M2.7
           # 官方建议推理模型 temperature 设为 1.0
           temperature: 1.0
+    # Anthropic Claude 模型配置
+    anthropic:
+      api-key: sk-cp-iCPIn304RzaQmSahTD9_GtaDCJVxSYyR1xKbWZrNlEdoVtoXG2cSv78AKM_Mu2E2h4l25oX-8cC11eJK3worf2qhpmykZEZwTAq4eaWZTnZqXawM1lb-9_U  # 设置环境变量 ANTHROPIC_API_KEY 或直接填写 API Key
+      base-url: https://api.minimaxi.com/anthropic
+      chat:
+        options:
+          model: MiniMax-M2.7  # 支持 claude-sonnet-4-5, claude-opus-4-5, claude-haiku-4-5 等
+          temperature: 0.8
+
     # MiniMax API 重试配置（应对 429/529 限流）
     retry:
       enabled: true

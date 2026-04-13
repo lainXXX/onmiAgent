@@ -69,15 +69,6 @@ public class AiConfig {
                 .build();
     }
 
-//    @Bean
-//    public ChatMemory chatMemory(JdbcChatMemoryRepository jdbcRepo) {
-//        // 创建一个滑动窗口记忆：使用 Postgres 存储，保留最近 20 条消息
-//        return MessageWindowChatMemory.builder()
-//                .chatMemoryRepository(jdbcRepo)
-//                .maxMessages(1000)
-//                .build();
-//    }
-
     /**
      * 为 PgVector 创建专用的数据源
      */
