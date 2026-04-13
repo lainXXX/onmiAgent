@@ -39,6 +39,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ContextCompressionAdvisor extends ToolCallAdvisor {
 
+    private static final int ORDER = 4000;
+
     private final ChatModel chatModel;
     private final ContextCompressionProperties properties;
     private final SnipCompactor snipCompactor;
@@ -89,7 +91,6 @@ public class ContextCompressionAdvisor extends ToolCallAdvisor {
 
     protected ContextCompressionAdvisor(
             ToolCallingManager toolCallingManager,
-            int advisorOrder,
             boolean conversationHistoryEnabled,
             boolean streamToolCallResponses,
             ChatModel chatModel,
@@ -97,7 +98,7 @@ public class ContextCompressionAdvisor extends ToolCallAdvisor {
             SnipCompactor snipCompactor,
             MicroCompactor microCompactor,
             MemoryRepository memoryRepository) {
-        super(toolCallingManager, advisorOrder, conversationHistoryEnabled, streamToolCallResponses);
+        super(toolCallingManager, ORDER, conversationHistoryEnabled, streamToolCallResponses);
         this.chatModel = chatModel;
         this.properties = properties;
         this.snipCompactor = snipCompactor;
@@ -223,7 +224,7 @@ public class ContextCompressionAdvisor extends ToolCallAdvisor {
 
     @Override
     public int getOrder() {
-        return 4000;
+        return ORDER;
     }
 
     // ==================== 核心方法 ====================
