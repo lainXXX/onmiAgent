@@ -105,4 +105,25 @@ CREATE TABLE `task_progress`  (
   PRIMARY KEY (`user_id`, `session_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
 
+-- ----------------------------
+-- Table structure for chat_memory (上下文压缩软删除字段)
+-- ----------------------------
+DROP TABLE IF EXISTS `chat_memory`;
+CREATE TABLE `chat_memory`  (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `parent_id` bigint NULL DEFAULT NULL COMMENT '父消息 ID（USER 消息的 parent_id=NULL，表示一轮对话的根）',
+  `conversation_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '会话 ID',
+  `user_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '用户 ID',
+  `role` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '角色：USER / ASSISTANT',
+  `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL COMMENT '消息内容',
+  `metadata` json NULL COMMENT '扩展字段',
+  `is_compressed` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否已被压缩（软删除标记）',
+  `compressed_by` varchar(64) NULL DEFAULT NULL COMMENT '压缩操作人/摘要ID',
+  `compressed_at` timestamp NULL DEFAULT NULL COMMENT '压缩时间',
+  `created_at` datetime(3) NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_conversation_id`(`conversation_id` ASC) USING BTREE,
+  INDEX `idx_is_compressed`(`is_compressed` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 128 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '聊天历史记录表（支持上下文压缩软删除）' ROW_FORMAT = Dynamic;
+
 SET FOREIGN_KEY_CHECKS = 1;
