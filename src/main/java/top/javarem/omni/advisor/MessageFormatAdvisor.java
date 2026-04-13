@@ -1,12 +1,14 @@
 package top.javarem.omni.advisor;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClientMessageAggregator;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.*;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -19,6 +21,7 @@ import top.javarem.omni.repository.chat.MemoryRepository;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 专门修复 MiniMax/智谱等模型的消息顺序问题
@@ -40,36 +43,54 @@ public class MessageFormatAdvisor implements BaseAdvisor {
 
     @Override
     public ChatClientRequest before(ChatClientRequest request, AdvisorChain chain) {
-        String conversationId = (String) request.context().get(ChatMemory.CONVERSATION_ID);
-        // 构建消息列表
-        List<Message> messages = new ArrayList<>();
-        // 1.获取系统消息
-        String systemPrompt = systemMessageLoader.loadSystemPrompt();
-        messages.add(new SystemMessage(systemPrompt));
-        String toolsMessage = systemMessageLoader.loadTools();
-        if (toolsMessage != null) {
-            messages.add(new UserMessage(toolsMessage));
+        Map<String, Object> context = request.context();
+        String conversationId = (String) context.get(ChatMemory.CONVERSATION_ID);
+
+        // 1. 初始化消息容量，减少 ArrayList 扩容开销
+        List<Message> messages = new ArrayList<>(16);
+
+        // 2. 批量加载系统/配置级消息
+        addMessageIfPresent(messages, MessageType.SYSTEM, systemMessageLoader.loadSystemPrompt());
+
+        // 注意：原代码中 loadTools 被调用了两次，这里已去重
+        addMessageIfPresent(messages, MessageType.USER, systemMessageLoader.loadTools());
+        addMessageIfPresent(messages, MessageType.USER, systemMessageLoader.loadSkillsGuide());
+
+        // 3. 动态上下文消息 (Skill & Workspace)
+        if (Boolean.TRUE.equals(context.get(AdvisorContextConstants.ENABLE_SKILL))) {
+            addMessageIfPresent(messages, MessageType.USER, skillLoader.getSkillsDescription());
         }
-        String skillsGuide = systemMessageLoader.loadSkillsGuide();
-        if (skillsGuide != null) {
-            messages.add(new UserMessage(skillsGuide));
+
+        String workSpace = context.get(AdvisorContextConstants.WORKSPACE).toString();
+        if (StringUtils.isNotBlank(workSpace)) {
+            messages.add(new UserMessage("当前工作目录（CWD）为：" + workSpace));
         }
-        String toolsGuide = systemMessageLoader.loadTools();
-        if (toolsGuide != null) {
-            messages.add(new UserMessage(toolsGuide));
+
+        // 4. 历史记忆消息
+        if (conversationId != null) {
+            List<Message> memoryMessages = memoryRepository.findMessagesByConversationId(conversationId);
+            if (memoryMessages != null) {
+                messages.addAll(memoryMessages);
+            }
         }
-        // 2.获取提醒消息
-        if ((boolean) request.context().get(AdvisorContextConstants.ENABLE_SKILL)) {
-            UserMessage skillMessage = new UserMessage(skillLoader.getSkillsDescription());
-            messages.add(skillMessage);
-        }
-        // 3.获取记忆消息
-        List<Message> memoryMessages = memoryRepository.findMessagesByConversationId(conversationId);
-        messages.addAll(memoryMessages);
-        // 4.获取用户消息 (final last message)
         messages.add(request.prompt().getUserMessage());
+
+        // 5. 合并当前用户输入并构建最终请求
         Prompt prompt = request.prompt().mutate().messages(messages).build();
-        return request.mutate().prompt(prompt).build();
+
+        return request.mutate()
+                .prompt(prompt)
+                .build();
+    }
+
+    /**
+     * 辅助工具方法：判空并添加消息，保持主逻辑清爽
+     */
+    private void addMessageIfPresent(List<Message> messages, MessageType type, String content) {
+        if (content == null || content.isBlank()) {
+            return;
+        }
+        messages.add(type == MessageType.SYSTEM ? new SystemMessage(content) : new UserMessage(content));
     }
 
     @Override

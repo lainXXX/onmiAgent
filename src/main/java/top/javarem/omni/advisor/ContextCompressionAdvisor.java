@@ -5,6 +5,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientMessageAggregator;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
+import org.springframework.ai.chat.client.advisor.ToolCallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisor;
@@ -16,6 +17,8 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -32,7 +35,7 @@ import java.util.stream.Collectors;
 
 @Component
 @Slf4j
-public class ContextCompressionAdvisor implements CallAdvisor, StreamAdvisor {
+public class ContextCompressionAdvisor extends ToolCallAdvisor {
 
     private final ChatModel chatModel;
 
@@ -64,13 +67,65 @@ public class ContextCompressionAdvisor implements CallAdvisor, StreamAdvisor {
             - Output ONLY the raw, updated summary content.
             """;
 
-    public ContextCompressionAdvisor(@Qualifier("minimaxChatModel") ChatModel chatModel, ContextCompressionProperties properties, ThreadPoolExecutor threadPoolExecutor, MemoryRepository memoryRepository, VectorStore vectorStore) {
+    protected ContextCompressionAdvisor(ToolCallingManager toolCallingManager, int advisorOrder, boolean conversationHistoryEnabled, boolean streamToolCallResponses, ChatModel chatModel, ContextCompressionProperties properties, ThreadPoolExecutor threadPoolExecutor, MemoryRepository memoryRepository, VectorStore vectorStore) {
+        super(toolCallingManager, advisorOrder, conversationHistoryEnabled, streamToolCallResponses);
         this.chatModel = chatModel;
         this.properties = properties;
         this.threadPoolExecutor = threadPoolExecutor;
         this.memoryRepository = memoryRepository;
         this.vectorStore = vectorStore;
     }
+
+    @Override
+    protected List<Message> doGetNextInstructionsForToolCall(ChatClientRequest chatClientRequest, ChatClientResponse chatClientResponse, ToolExecutionResult toolExecutionResult) {
+        return super.doGetNextInstructionsForToolCall(chatClientRequest, chatClientResponse, toolExecutionResult);
+    }
+
+    @Override
+    protected ChatClientResponse doFinalizeLoop(ChatClientResponse chatClientResponse, CallAdvisorChain callAdvisorChain) {
+        return super.doFinalizeLoop(chatClientResponse, callAdvisorChain);
+    }
+
+    @Override
+    protected ChatClientRequest doInitializeLoop(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
+        return super.doInitializeLoop(chatClientRequest, callAdvisorChain);
+    }
+
+    @Override
+    protected ChatClientRequest doBeforeCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
+        return super.doBeforeCall(chatClientRequest, callAdvisorChain);
+    }
+
+    @Override
+    protected ChatClientResponse doAfterCall(ChatClientResponse chatClientResponse, CallAdvisorChain callAdvisorChain) {
+        return super.doAfterCall(chatClientResponse, callAdvisorChain);
+    }
+
+    @Override
+    protected ChatClientRequest doInitializeLoopStream(ChatClientRequest chatClientRequest, StreamAdvisorChain streamAdvisorChain) {
+        return super.doInitializeLoopStream(chatClientRequest, streamAdvisorChain);
+    }
+
+    @Override
+    protected ChatClientRequest doBeforeStream(ChatClientRequest chatClientRequest, StreamAdvisorChain streamAdvisorChain) {
+        return super.doBeforeStream(chatClientRequest, streamAdvisorChain);
+    }
+
+    @Override
+    protected ChatClientResponse doAfterStream(ChatClientResponse chatClientResponse, StreamAdvisorChain streamAdvisorChain) {
+        return super.doAfterStream(chatClientResponse, streamAdvisorChain);
+    }
+
+    @Override
+    protected Flux<ChatClientResponse> doFinalizeLoopStream(Flux<ChatClientResponse> chatClientResponseFlux, StreamAdvisorChain streamAdvisorChain) {
+        return super.doFinalizeLoopStream(chatClientResponseFlux, streamAdvisorChain);
+    }
+
+    @Override
+    protected List<Message> doGetNextInstructionsForToolCallStream(ChatClientRequest chatClientRequest, ChatClientResponse chatClientResponse, ToolExecutionResult toolExecutionResult) {
+        return super.doGetNextInstructionsForToolCallStream(chatClientRequest, chatClientResponse, toolExecutionResult);
+    }
+
 
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {

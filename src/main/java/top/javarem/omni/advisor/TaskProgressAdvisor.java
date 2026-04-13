@@ -67,7 +67,7 @@ public class TaskProgressAdvisor implements BaseAdvisor {
     /**
      * 硬性上限阈值 - 超过此值直接强制终止对话，防止无限循环
      */
-    private static final int HARD_LIMIT = 100;
+    private static final int HARD_LIMIT = 100000;
 
     /**
      * 任务服务 - 提供TaskEntity查询能力
