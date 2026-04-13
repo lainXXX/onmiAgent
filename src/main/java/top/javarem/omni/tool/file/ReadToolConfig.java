@@ -8,9 +8,10 @@ import org.springframework.stereotype.Component;
 import top.javarem.omni.model.context.AdvisorContextConstants;
 import top.javarem.omni.tool.AgentTool;
 
-import java.io.BufferedInputStream;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -135,28 +136,28 @@ public class ReadToolConfig implements AgentTool {
     private String readFileContent(Path targetPath, String displayPath, int startLine, int maxLines) throws IOException {
         Charset charset = detectCharset(targetPath);
 
-        // 流式读取，避免将整个文件加载到内存
+        // 使用 BufferedReader 替代 Scanner，避免阻塞问题
         List<String> contentLines = new ArrayList<>(maxLines);
         int totalLines = 0;
 
-        try (InputStream is = Files.newInputStream(targetPath);
-             BufferedInputStream bis = new BufferedInputStream(is);
-             Scanner scanner = new Scanner(bis, charset)) {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(Files.newInputStream(targetPath), charset))) {
 
-            while (scanner.hasNextLine()) {
+            String line;
+            while ((line = reader.readLine()) != null) {
                 totalLines++;
                 int lineNum = totalLines;
 
                 if (lineNum < startLine) continue;
                 if (contentLines.size() >= maxLines) {
                     // 消耗剩余行以获取总数
-                    while (scanner.hasNextLine()) {
+                    while (reader.readLine() != null) {
                         totalLines++;
                     }
                     break;
                 }
 
-                contentLines.add(scanner.nextLine());
+                contentLines.add(line);
             }
         }
 
@@ -195,12 +196,13 @@ public class ReadToolConfig implements AgentTool {
     // ============================================================
 
     private Charset detectCharset(Path filePath) {
-        // 先尝试 UTF-8 单次遍历检测
-        try (InputStream is = Files.newInputStream(filePath);
-             BufferedInputStream bis = new BufferedInputStream(is)) {
-
+        try (InputStream is = Files.newInputStream(filePath)) {
             byte[] sample = new byte[8192];
-            int len = bis.read(sample);
+            int len = is.read(sample);
+
+            if (len <= 0) {
+                return StandardCharsets.UTF_8;
+            }
 
             // 检测 BOM
             if (len >= 3 && (sample[0] & 0xFF) == 0xEF && (sample[1] & 0xFF) == 0xBB && (sample[2] & 0xFF) == 0xBF) {
