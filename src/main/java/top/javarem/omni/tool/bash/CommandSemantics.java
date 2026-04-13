@@ -62,8 +62,7 @@ public class CommandSemantics {
             Map.entry("service", this::interpretService),
             Map.entry("journalctl", this::interpretJournalctl),
             Map.entry("awk", this::interpretAwk),
-            Map.entry("sed", this::interpretSed),
-            Map.entry("kubectl", this::interpretKubectl)
+            Map.entry("sed", this::interpretSed)
         );
     }
 
