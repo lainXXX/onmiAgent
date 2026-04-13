@@ -156,22 +156,59 @@ public class MemoryRepository {
     }
 
     /**
-     * 压缩聊天记忆：删除中间记录，保留头部和尾部
+     * 压缩聊天记忆：软删除中间记录，保留头部和尾部
+     *
+     * <p>使用软删除（is_compressed=1）替代物理删除，防止进程 Crash 导致数据丢失
      */
     @Transactional
     public int compress(String conversationId, int keepHead, int keepTail) {
+        return compress(conversationId, keepHead, keepTail, null);
+    }
+
+    /**
+     * 压缩聊天记忆：软删除中间记录
+     *
+     * @param conversationId 会话 ID
+     * @param keepHead 保留头部记录数
+     * @param keepTail 保留尾部记录数
+     * @param summaryId 摘要 ID（用于 compressed_by 字段）
+     * @return 被标记为压缩的记录数
+     */
+    @Transactional
+    public int compress(String conversationId, int keepHead, int keepTail, String summaryId) {
         if (keepHead < 0 || keepTail < 0) {
             throw new IllegalArgumentException("keepHead and keepTail must be non-negative");
         }
         String sql = """
-            DELETE FROM chat_memory WHERE conversation_id = ?
+            UPDATE chat_memory
+            SET is_compressed = 1,
+                compressed_by = ?,
+                compressed_at = NOW()
+            WHERE conversation_id = ?
             AND id NOT IN (
               SELECT id FROM (SELECT id FROM chat_memory WHERE conversation_id = ? ORDER BY id ASC LIMIT ?) as h
               UNION
               SELECT id FROM (SELECT id FROM chat_memory WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) as t
             )
+            AND is_compressed = 0
             """;
-        return jdbcTemplate.update(sql, conversationId, conversationId, keepHead, conversationId, keepTail);
+        return jdbcTemplate.update(sql, summaryId, conversationId, conversationId, keepHead, conversationId, keepTail);
+    }
+
+    /**
+     * 可选：定期物理删除已压缩的旧记录
+     *
+     * @param daysOld 删除多少天前的压缩记录
+     * @return 删除的记录数
+     */
+    @Transactional
+    public int purgeCompressedRecords(int daysOld) {
+        String sql = """
+            DELETE FROM chat_memory
+            WHERE is_compressed = 1
+            AND compressed_at < DATE_SUB(NOW(), INTERVAL ? DAY)
+            """;
+        return jdbcTemplate.update(sql, daysOld);
     }
 
     /**

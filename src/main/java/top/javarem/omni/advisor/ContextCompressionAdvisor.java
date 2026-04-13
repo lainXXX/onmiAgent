@@ -16,20 +16,22 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.document.Document;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import top.javarem.omni.config.ContextCompressionProperties;
+import top.javarem.omni.model.context.AdvisorContextConstants;
 import top.javarem.omni.repository.chat.MemoryRepository;
 
 import java.math.BigDecimal;
-import java.util.*;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -38,42 +40,69 @@ import java.util.stream.Collectors;
 public class ContextCompressionAdvisor extends ToolCallAdvisor {
 
     private final ChatModel chatModel;
-
     private final ContextCompressionProperties properties;
-
-    private final ThreadPoolExecutor threadPoolExecutor;
-
+    private final SnipCompactor snipCompactor;
+    private final MicroCompactor microCompactor;
     private final MemoryRepository memoryRepository;
-
     private final ChatClientMessageAggregator aggregator = new ChatClientMessageAggregator();
 
-    private final VectorStore vectorStore;
+    // 电路断路器
+    private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
+    private volatile boolean circuitBreakerOpen = false;
 
-    //   翻译：你将长对话压缩成简洁、事实性的摘要。捕获关键决策、实体、意图和未解决事项。
+    // 摘要 System Prompt
     private final String summarySystemPrompt = """
             You are a Context Compression Engine. Your task is to update the system's long-term memory based on the ongoing conversation.
-                        
+
             Inputs provided to you may contain an <existing_summary> and recent <new_messages>.
-                        
+
             # Requirements:
             1. MERGE: If an existing summary exists, seamlessly integrate new developments into it. Do NOT lose critical early decisions or constraints.
             2. RETAIN: Keep exact file paths, commands, code structure decisions, and resolved bugs.
             3. PRUNE: Remove outdated next steps that have now been completed. Exclude all conversational filler.
             4. FORMAT: Use dense Markdown bullet points.
-                        
+
+            # Output Format:
+            Use <analysis> and <summary> tags:
+
+            <analysis>
+            [分析新旧内容之间的关系和变化]
+            </analysis>
+
+            <summary>
+            1. **主要请求和意图**: [详细描述]
+            2. **关键技术概念**: [列表]
+            3. **文件和代码段**: [文件列表 + 摘要]
+            4. **错误和修复**: [错误描述 + 解决方法]
+            5. **问题解决**: [已解决 + 进行中]
+            6. **所有用户消息**: [消息列表]
+            7. **待处理任务**: [任务列表]
+            8. **当前工作**: [描述]
+            9. **可选的下一步**: [下一步]
+            </summary>
+
             # Constraints:
             - Do NOT call any tools.
             - Do NOT include introductory phrases like "Here is the summary".
             - Output ONLY the raw, updated summary content.
             """;
 
-    protected ContextCompressionAdvisor(ToolCallingManager toolCallingManager, int advisorOrder, boolean conversationHistoryEnabled, boolean streamToolCallResponses, ChatModel chatModel, ContextCompressionProperties properties, ThreadPoolExecutor threadPoolExecutor, MemoryRepository memoryRepository, VectorStore vectorStore) {
+    protected ContextCompressionAdvisor(
+            ToolCallingManager toolCallingManager,
+            int advisorOrder,
+            boolean conversationHistoryEnabled,
+            boolean streamToolCallResponses,
+            ChatModel chatModel,
+            ContextCompressionProperties properties,
+            SnipCompactor snipCompactor,
+            MicroCompactor microCompactor,
+            MemoryRepository memoryRepository) {
         super(toolCallingManager, advisorOrder, conversationHistoryEnabled, streamToolCallResponses);
         this.chatModel = chatModel;
         this.properties = properties;
-        this.threadPoolExecutor = threadPoolExecutor;
+        this.snipCompactor = snipCompactor;
+        this.microCompactor = microCompactor;
         this.memoryRepository = memoryRepository;
-        this.vectorStore = vectorStore;
     }
 
     @Override
@@ -93,7 +122,57 @@ public class ContextCompressionAdvisor extends ToolCallAdvisor {
 
     @Override
     protected ChatClientRequest doBeforeCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
-        return super.doBeforeCall(chatClientRequest, callAdvisorChain);
+        // ========== 关键改进：在 API 调用之前执行压缩 ==========
+        if (!properties.isEnabled() || circuitBreakerOpen) {
+            return super.doBeforeCall(chatClientRequest, callAdvisorChain);
+        }
+
+        try {
+            List<Message> allMessages = new ArrayList<>(chatClientRequest.prompt().getInstructions());
+
+            // 提取历史消息（排除系统注入）
+            List<Message> historyMessages = extractHistoryMessages(allMessages);
+            int historyStartIndex = findHistoryStartIndex(allMessages);
+
+            // 检查是否需要压缩
+            if (!isCompressionRequired(historyMessages)) {
+                return super.doBeforeCall(chatClientRequest, callAdvisorChain);
+            }
+
+            log.info("上下文已达到压缩阈值，开始执行压缩...");
+
+            // 执行压缩
+            CompressionResult result = executeCompression(historyMessages);
+
+            if (result.isCompacted()) {
+                // 重组消息列表：系统注入 + 压缩后的历史（含摘要）
+                List<Message> compressedMessages = rebuildMessages(allMessages, historyStartIndex, result.getMessages());
+                // 修改 request
+                chatClientRequest = modifyRequestMessages(chatClientRequest, compressedMessages);
+
+                // 异步保存摘要到数据库
+                String conversationId = (String) chatClientRequest.context().get(ChatMemory.CONVERSATION_ID);
+                if (conversationId != null) {
+                    final String convId = conversationId;
+                    final CompressionResult finalResult = result;
+                    // 异步执行数据库操作
+                    new Thread(() -> {
+                        try {
+                            saveCompressionResult(convId, finalResult);
+                        } catch (Exception e) {
+                            log.error("保存压缩结果失败", e);
+                        }
+                    }).start();
+                }
+            }
+
+            return super.doBeforeCall(chatClientRequest, callAdvisorChain);
+
+        } catch (Exception e) {
+            log.error("上下文压缩失败: {}", e.getMessage(), e);
+            onFailure();
+            return super.doBeforeCall(chatClientRequest, callAdvisorChain);
+        }
     }
 
     @Override
@@ -126,41 +205,15 @@ public class ContextCompressionAdvisor extends ToolCallAdvisor {
         return super.doGetNextInstructionsForToolCallStream(chatClientRequest, chatClientResponse, toolExecutionResult);
     }
 
-
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
         ChatClientResponse response = chain.nextCall(request);
-        return after(request, response);
+        return response;
     }
 
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
-        // 1. 创建一个临时的聚合器
-        ChatClientMessageAggregator localAggregator = new ChatClientMessageAggregator();
-        // 2. 用来存放聚合后的最终完整响应
-        AtomicReference<ChatClientResponse> fullResponseRef = new AtomicReference<>();
-
-        return chain.nextStream(request)
-                .doOnNext(response -> {
-                    // 每来一个碎片，都扔进聚合器里攒着
-                    // 注意：aggregate 方法内部会处理流的合并逻辑
-                    localAggregator.aggregateChatClientResponse(Flux.just(response), fullResponseRef::set)
-                            .subscribe(); // 触发聚合动作
-                })
-                .doOnTerminate(() -> {
-                    // 当整个流结束（完成或错误）时
-                    ChatClientResponse completeResponse = fullResponseRef.get();
-                    if (completeResponse != null && completeResponse.chatResponse() != null) {
-                        // 异步执行压缩逻辑，不阻塞主流返回
-                        threadPoolExecutor.execute(() -> {
-                            try {
-                                after(request, completeResponse);
-                            } catch (Exception e) {
-                                log.error("流结束后异步压缩失败", e);
-                            }
-                        });
-                    }
-                });
+        return chain.nextStream(request);
     }
 
     @Override
@@ -173,133 +226,224 @@ public class ContextCompressionAdvisor extends ToolCallAdvisor {
         return 4000;
     }
 
-    private ChatClientResponse after(ChatClientRequest request, ChatClientResponse response) {
-        if (!properties.isEnabled()) {
-            log.info("上下文压缩功能未启用");
-            return response;
-        }
-//        if (!AdvisorContextConstants.Phase.COMPLETED.equals(response.context().get(AdvisorContextConstants.TOOL_CALL_PHASE))) {
-//            return response;
-//        }
-        List<Message> messages = new ArrayList<>(request.prompt().getInstructions());
-        // 获取本次对话返回的 Assistant 消息
-        String lastAssistantMessage = response.chatResponse().getResult().getOutput().getText();
-        messages.add(new AssistantMessage(lastAssistantMessage));
-        List<Message> conversationMessage = messages.stream().filter(m -> m instanceof UserMessage || m instanceof AssistantMessage).collect(Collectors.toList());
+    // ==================== 核心方法 ====================
 
-        if (isCompressionRequired(conversationMessage)) {
-            String conversationId = (String) request.context().get(ChatMemory.CONVERSATION_ID);
-            if (conversationId == null) {
-                log.warn("未找到 conversationId，跳过压缩");
-                return response;
-            }
-            log.info("上下文已达到压缩阈值，进行压缩处理 会话ID {}", conversationId);
-            int head = properties.getKeepEarliest();
-            int tail = properties.getKeepRecent();
-            List<Message> toSummarize = new ArrayList<>(conversationMessage.subList(head, conversationMessage.size() - tail));
-            threadPoolExecutor.execute(() -> {
-                try {
-                    String summarizedContext = summarize(toSummarize);
-                    saveSummary(conversationId, summarizedContext);
-                    // 删除中间历史记录
-                    deleteRecords(conversationId, head, tail);
-                } catch (Exception e) {
-                    log.error("上下文压缩失败: {}", e.getMessage(), e);
-                }
-            });
-
-        }
-        return response;
+    /**
+     * 检测是否为系统注入消息
+     */
+    private boolean isInjectedMessage(Message msg) {
+        Map<String, Object> metadata = msg.getMetadata();
+        return metadata != null &&
+                Boolean.TRUE.equals(metadata.get(AdvisorContextConstants.OMNI_INJECTED));
     }
 
     /**
-     * 判断当前 Prompt 是否达到需要进行上下文压缩的临界点
-     *
-     * @return true 表示需要立即进行压缩处理
+     * 提取历史消息（用于压缩）
+     */
+    private List<Message> extractHistoryMessages(List<Message> messages) {
+        return messages.stream()
+                .filter(msg -> !isInjectedMessage(msg))
+                .filter(msg -> msg instanceof UserMessage || msg instanceof AssistantMessage)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 找到历史消息在列表中的起始位置
+     */
+    private int findHistoryStartIndex(List<Message> messages) {
+        for (int i = 0; i < messages.size(); i++) {
+            if (!isInjectedMessage(messages.get(i))) {
+                return i;
+            }
+        }
+        return messages.size();
+    }
+
+    /**
+     * 判断当前上下文是否达到压缩阈值
      */
     public boolean isCompressionRequired(List<Message> messages) {
-        long tokenCount = estimateTokens(messages);
-        long contextThreshold = new BigDecimal(properties.getContextWindow()).multiply(properties.getThreshold()).longValue();
-        // 如果当前对话的 token 数量未达到阈值，则不进行压缩
+        long tokenCount = TokenEstimator.estimateMessages(messages);
+        long contextThreshold = new BigDecimal(properties.getContextWindow())
+                .multiply(properties.getThreshold()).longValue();
+
         if (tokenCount <= contextThreshold) return false;
-        // 当总消息数小于等于保留数时，才不需要压缩
         if (messages.size() <= properties.getKeepEarliest() + properties.getKeepRecent()) return false;
+
         return true;
     }
 
     /**
-     * 调用轻量大模型对话进行压缩
+     * 执行压缩（SnipCompact → MicroCompact → AutoCompact）
+     */
+    private CompressionResult executeCompression(List<Message> historyMessages) {
+        List<Message> compressed = new ArrayList<>(historyMessages);
+        long preTokens = TokenEstimator.estimateMessages(compressed);
+
+        // Layer 1: SnipCompact
+        if (properties.isSnipEnabled()) {
+            SnipCompactor.SnipResult snipResult = snipCompactor.compact(compressed);
+            compressed = snipResult.getMessages();
+            log.info("SnipCompact: 释放 {} tokens", snipResult.getTokensFreed());
+        }
+
+        // Layer 2: MicroCompact
+        if (properties.isMicroCompactEnabled()) {
+            MicroCompactor.MicroCompactResult microResult = microCompactor.compact(compressed);
+            compressed = microResult.getMessages();
+            log.info("MicroCompact: 清理 {} 条消息", microResult.getClearedCount());
+        }
+
+        // Layer 3: AutoCompact - 生成摘要
+        if (!properties.isAutoCompactEnabled()) {
+            return CompressionResult.notCompacted(compressed, preTokens);
+        }
+
+        // 检查是否仍然需要 AutoCompact
+        if (compressed.size() <= properties.getKeepEarliest() + properties.getKeepRecent()) {
+            return CompressionResult.notCompacted(compressed, preTokens);
+        }
+
+        // 提取要压缩的部分（保留头尾）
+        int head = properties.getKeepEarliest();
+        int tail = properties.getKeepRecent();
+        List<Message> toSummarize = new ArrayList<>(
+                compressed.subList(head, compressed.size() - tail));
+
+        // 调用 LLM 生成摘要
+        String summary = summarize(toSummarize);
+        if (summary == null || summary.isBlank()) {
+            log.warn("摘要生成失败，跳过压缩");
+            return CompressionResult.failure("摘要生成失败");
+        }
+
+        // 构建摘要消息
+        String summaryContent = buildSummaryMessage(summary);
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put(AdvisorContextConstants.OMNI_INJECTED, true);
+        metadata.put("type", "compression_summary");
+        UserMessage summaryMessage = UserMessage.builder()
+                .text(summaryContent)
+                .metadata(metadata)
+                .build();
+
+        // 重组：头部 + 摘要 + 尾部
+        List<Message> result = new ArrayList<>();
+        result.addAll(compressed.subList(0, head));
+        result.add(summaryMessage);
+        result.addAll(compressed.subList(compressed.size() - tail, compressed.size()));
+
+        long postTokens = TokenEstimator.estimateMessages(result);
+
+        return CompressionResult.success(result, preTokens, postTokens, summaryMessage, summary);
+    }
+
+    /**
+     * 调用轻量大模型生成摘要
      */
     private String summarize(List<Message> messages) {
-        messages.add(0, new SystemMessage(summarySystemPrompt));
-        return ChatClient.builder(chatModel).build()
-                .prompt()
-                .messages(messages)
-                .options(OpenAiChatOptions.builder()
-                        // 设置低温度，输出结果稳定
-                        .temperature(0.1)
-//                        .maxTokens(1200)
-                        .build())
-                .call()
-                .content();
-    }
+        List<Message> promptMessages = new ArrayList<>();
+        promptMessages.add(new SystemMessage(summarySystemPrompt));
+        promptMessages.addAll(messages);
 
-    /**
-     * 估算消息的 token 数量（粗略估算）
-     * 中文约 1 字符/token，英文约 0.75 单词/token
-     */
-    private long estimateTokens(List<Message> messages) {
-        if (messages == null || messages.isEmpty()) {
-            return 0;
-        }
-
-
-        int totalChars = 0;
-        for (Message msg : messages) {
-            String content = msg.getText();
-            if (content != null) {
-                totalChars += content.length();
-            }
-        }
-        // 粗略估算token
-        return (long) (totalChars * 0.75);
-    }
-
-    /**
-     * 删除中间历史记录
-     * @param conversationId 会话ID
-     * @param keepHead 保留头部记录数
-     * @param keepTail 保留尾部记录数
-     */
-    public void deleteRecords(String conversationId, int keepHead, int keepTail) {
-        int deletedCount = memoryRepository.compress(conversationId, keepHead, keepTail);
-        log.info("压缩完成，共删除了 {} 条中间历史记录。", deletedCount);
-    }
-
-    /**
-     * 将摘要保存到向量数据库
-     *
-     * @param conversationId 会话ID
-     * @param summary        摘要内容
-     */
-    private void saveSummary(String conversationId, String summary) {
         try {
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("conversation_id", conversationId);
-            metadata.put("type", "summary");
-            metadata.put("timestamp", System.currentTimeMillis());
-
-            // 使用 UUID 作为 ID
-            Document document = Document.builder()
-                    .id(UUID.randomUUID().toString())
-                    .text(summary)
-                    .metadata(metadata)
-                    .build();
-
-            vectorStore.add(List.of(document));
-            log.info("摘要已存入向量数据库, conversationId: {}", conversationId);
+            return ChatClient.builder(chatModel).build()
+                    .prompt()
+                    .messages(promptMessages)
+                    .options(OpenAiChatOptions.builder()
+                            .temperature(0.1)
+                            .maxTokens(properties.getMaxSummaryTokens())
+                            .build())
+                    .call()
+                    .content();
         } catch (Exception e) {
-            log.error("存入向量数据库失败: {}", e.getMessage(), e);
+            log.error("生成摘要失败: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * 构建摘要消息内容
+     */
+    private String buildSummaryMessage(String summary) {
+        return String.format("""
+                [上下文压缩摘要]
+
+                %s
+
+                继续对话，不要询问用户。
+                """, summary);
+    }
+
+    /**
+     * 重组消息列表
+     */
+    private List<Message> rebuildMessages(List<Message> allMessages, int historyStartIndex, List<Message> compressedHistory) {
+        List<Message> result = new ArrayList<>();
+
+        // 添加系统注入消息
+        for (int i = 0; i < historyStartIndex; i++) {
+            result.add(allMessages.get(i));
+        }
+
+        // 添加压缩后的历史
+        result.addAll(compressedHistory);
+
+        return result;
+    }
+
+    /**
+     * 修改 request 中的消息列表
+     */
+    private ChatClientRequest modifyRequestMessages(ChatClientRequest request, List<Message> newMessages) {
+        return request.mutate()
+                .prompt(request.prompt().mutate().messages(newMessages).build())
+                .build();
+    }
+
+    /**
+     * 保存压缩结果到数据库
+     */
+    private void saveCompressionResult(String conversationId, CompressionResult result) {
+        try {
+            // 保存摘要消息
+            Long summaryMsgId = memoryRepository.saveUserMessage(
+                    conversationId,
+                    "system",
+                    result.getSummaryContent()
+            );
+
+            // 软删除中间记录
+            memoryRepository.compress(
+                    conversationId,
+                    properties.getKeepEarliest(),
+                    properties.getKeepRecent(),
+                    summaryMsgId.toString()
+            );
+
+            log.info("压缩结果已保存到数据库，摘要 ID: {}", summaryMsgId);
+            onSuccess();
+
+        } catch (Exception e) {
+            log.error("保存压缩结果失败: {}", e.getMessage(), e);
+            onFailure();
+        }
+    }
+
+    // ==================== 电路断路器 ====================
+
+    private void onSuccess() {
+        consecutiveFailures.set(0);
+    }
+
+    private void onFailure() {
+        if (!properties.isCircuitBreakerEnabled()) return;
+
+        int failures = consecutiveFailures.incrementAndGet();
+        if (failures >= properties.getMaxConsecutiveFailures()) {
+            log.warn("电路断路器触发！连续失败 {} 次，暂停自动压缩",
+                    failures);
+            circuitBreakerOpen = true;
         }
     }
 }
