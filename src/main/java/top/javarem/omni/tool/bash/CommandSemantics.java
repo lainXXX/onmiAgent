@@ -26,14 +26,13 @@ public class CommandSemantics {
         "grep", "rg", "fgrep", "egrep",
         "git", "svn", "hg",
         "npm", "yarn", "pnpm", "bun",
-        "docker", "docker-compose",
+        "docker", "docker-compose", "kubectl",
         "find", "xargs",
         "test", "[",
         "diff", "cmp", "comm",
         "python", "python3", "pip", "node",
         "systemctl", "service", "journalctl",
-        "docker", "docker-compose", "kubectl",
-        "awk", "sed", "grep", "cut", "sort", "uniq", "wc"
+        "awk", "sed", "cut", "sort", "uniq", "wc"
     );
 
     private final Map<String, BiFunction<Integer, String, String>> semantics;
