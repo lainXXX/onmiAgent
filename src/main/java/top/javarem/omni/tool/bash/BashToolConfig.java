@@ -45,11 +45,12 @@ public class BashToolConfig implements AgentTool {
             ToolContext toolContext
             ) {
 
-        // 从 ToolContext 获取 workspace（由 ChatController 设置）
+        // 从 ToolContext 获取 workspace 和 acceptEdits（由 ChatController 设置）
         String workspace = extractWorkspace(toolContext);
+        boolean acceptEdits = extractAcceptEdits(toolContext);
 
-        log.info("[BashToolConfig] 执行命令: {} | workspace: {} | 描述: {} | 后台: {} | 禁用沙箱: {}",
-                command, workspace, description, runInBackground, dangerouslyDisableSandbox);
+        log.info("[BashToolConfig] 执行命令: {} | workspace: {} | 描述: {} | 后台: {} | acceptEdits: {}",
+                command, workspace, description, runInBackground, acceptEdits);
 
         // 1. 参数校验
         if (command == null || command.trim().isEmpty()) {
@@ -70,7 +71,7 @@ public class BashToolConfig implements AgentTool {
             if (Boolean.TRUE.equals(runInBackground)) {
                 return executor.executeBackground(command, workspace);
             }
-            return executor.execute(command, timeoutMs, workspace);
+            return executor.execute(command, timeoutMs, workspace, acceptEdits);
         } catch (Exception e) {
             log.error("[BashToolConfig] 执行异常: {}", e.getMessage(), e);
             return "❌ 命令执行异常: " + e.getMessage();
@@ -89,6 +90,18 @@ public class BashToolConfig implements AgentTool {
             }
         }
         return null;
+    }
+
+    private boolean extractAcceptEdits(ToolContext toolContext) {
+        if (toolContext == null || toolContext.getContext() == null) {
+            return false;
+        }
+        Object acceptEditsObj = toolContext.getContext().get("acceptEdits");
+        if (acceptEditsObj != null) {
+            return Boolean.TRUE.equals(acceptEditsObj) ||
+                   "true".equalsIgnoreCase(acceptEditsObj.toString());
+        }
+        return false;
     }
 
     private long normalizeTimeout(Long timeout) {

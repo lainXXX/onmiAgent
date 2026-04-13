@@ -16,7 +16,4 @@ public final class BashConstants {
     public static final int MAX_OUTPUT_CHARS = 6000;
     public static final int KEEP_START = 1000;
     public static final int KEEP_END = 5000;
-
-    // ==================== 系统信息 ====================
-    public static final String WORKSPACE = System.getProperty("user.dir");
 }

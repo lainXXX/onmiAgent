@@ -18,28 +18,13 @@ public class PathNormalizer {
     public String normalize(String pathStr) {
         if (pathStr == null || pathStr.isBlank()) return "";
         try {
-            // 转换 Git Bash 路径格式 /c/... -> C:/...
-            String converted = convertGitBashPath(pathStr);
+            // 统一使用 OsHelper 进行 OS 适配路径归一化
+            String converted = OsHelper.current().normalizePath(pathStr);
             Path normalized = Paths.get(converted).normalize();
             return normalized.toString().replace("\\", "/");
         } catch (Exception e) {
             return pathStr.replace("\\", "/");
         }
-    }
-
-    /**
-     * 转换 Git Bash 路径格式为 Windows 路径格式
-     * /c/Users/... -> C:/Users/...
-     * /d/Program Files/... -> D:/Program Files/...
-     */
-    private String convertGitBashPath(String path) {
-        if (path == null || path.isBlank()) return path;
-        // 匹配 /c/ 或 /d/ 等驱动器路径
-        if (path.matches("^/[a-z]/.*")) {
-            char drive = Character.toUpperCase(path.charAt(1));
-            return drive + ":" + path.substring(2);
-        }
-        return path;
     }
 
     public void validate(String command) {
@@ -74,9 +59,9 @@ public class PathNormalizer {
             String workspaceStr = workspacePath.toString().replace("\\", "/");
 
             if (!resolvedStr.startsWith(workspaceStr + "/") && !resolvedStr.equals(workspaceStr)) {
-                throw new SecurityException("禁止访问 WORKSPACE 之外的路径: " + pathCandidate);
+                throw new WorkspaceAccessException(pathCandidate);
             }
-        } catch (SecurityException e) {
+        } catch (WorkspaceAccessException e) {
             throw e;
         } catch (Exception e) {
             // Path parsing failed — allow it (will be caught by shell)

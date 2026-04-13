@@ -1,6 +1,5 @@
 package top.javarem.omni.tool.bash;
 
-import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +34,9 @@ public class BashExecutor {
     @Autowired
     private SecurityInterceptor securityInterceptor;
 
+    @Autowired
+    private WorkingDirectoryManager workingDirectoryManager;
+
     @Resource
     private ResponseFormatter formatter;
 
@@ -57,14 +59,6 @@ public class BashExecutor {
      * 当 taskExecutor 不可用时的降级共享线程池
      */
     private volatile ExecutorService sharedExecutor;
-
-    private volatile String detectedShell;
-    private volatile boolean shellDetected = false;
-
-    @PostConstruct
-    public void init() {
-        detectBash();
-    }
 
     private ExecutorService getOrCreateExecutor() {
         if (taskExecutor != null) {
@@ -116,17 +110,34 @@ public class BashExecutor {
      * 执行命令（同步等待结果）
      */
     public String execute(String command, long timeoutMs, String userWorkspace) throws Exception {
+        return execute(command, timeoutMs, userWorkspace, false);
+    }
+
+    /**
+     * 执行命令（同步等待结果）
+     * @param acceptEdits 编辑模式：放行文件系统命令的审批
+     */
+    public String execute(String command, long timeoutMs, String userWorkspace, boolean acceptEdits) throws Exception {
         String effectiveWorkspace = resolveEffectiveWorkspace(userWorkspace);
-        SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace);
+        workingDirectoryManager.syncWorkspace(effectiveWorkspace);
+        SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace, acceptEdits);
+        boolean destructiveWarning = false;
         switch (check.type()) {
             case DENY:
                 return formatter.formatError("安全拦截: " + check.message(), -1, command);
             case PENDING:
                 return formatter.formatPending(check.ticketId(), check.message());
+            case WARNING:
+                destructiveWarning = true;
+                break;
             case ALLOW:
                 break;
         }
-        return doExecute(command, timeoutMs, false);
+        String result = doExecute(command, timeoutMs, false, effectiveWorkspace);
+        if (destructiveWarning) {
+            return formatter.formatDestructiveWarning(command) + result;
+        }
+        return result;
     }
 
     /**
@@ -134,6 +145,7 @@ public class BashExecutor {
      */
     public String executeBackground(String command, String userWorkspace) throws Exception {
         String effectiveWorkspace = resolveEffectiveWorkspace(userWorkspace);
+        workingDirectoryManager.syncWorkspace(effectiveWorkspace);
         SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace);
         if (check.type() == SecurityInterceptor.CheckResult.Type.DENY) {
             return formatter.formatError("安全拦截: " + check.message(), -1, command);
@@ -141,13 +153,18 @@ public class BashExecutor {
         if (check.type() == SecurityInterceptor.CheckResult.Type.PENDING) {
             return formatter.formatPending(check.ticketId(), check.message());
         }
-        return doExecute(command, 0, true);
+        if (check.type() == SecurityInterceptor.CheckResult.Type.WARNING) {
+            log.warn("[BashExecutor] Destructive command warning (background): {}", command);
+        }
+        return doExecute(command, 0, true, effectiveWorkspace);
     }
 
-    private String doExecute(String command, long timeoutMs, boolean background) throws Exception {
+    private String doExecute(String command, long timeoutMs, boolean background, String effectiveWorkspace) throws Exception {
         ProcessBuilder builder = new ProcessBuilder();
         configureProcessBuilder(builder, command);
-        builder.directory(new File(BashConstants.WORKSPACE));
+        // 优先使用 WorkingDirectoryManager 跟踪的目录，支持 cd 命令动态切换
+        Path trackedDir = workingDirectoryManager.getCurrentDir();
+        builder.directory(trackedDir.toFile());
         builder.redirectErrorStream(true);
 
         Process process = builder.start();
@@ -189,6 +206,8 @@ public class BashExecutor {
             readerFuture.cancel(true);
             processRegistry.kill(pid);
             log.warn("[BashExecutor] Command timeout: {}ms cmd={}", timeoutMs, command);
+            // 超时时也跟踪目录（命令可能改变了目录）
+            workingDirectoryManager.trackAndValidate(rawOutput, null);
             return formatter.formatTimeout(rawOutput, timeoutMs);
         }
 
@@ -200,6 +219,12 @@ public class BashExecutor {
 
         processRegistry.unregister(pid);
 
+        // 跟踪命令执行后的工作目录变化（成功或失败都要跟踪）
+        Path newDir = workingDirectoryManager.trackAndValidate(rawOutput, null);
+        if (!newDir.equals(workingDirectoryManager.getCurrentDir())) {
+            log.info("[BashExecutor] 工作目录切换: -> {}", newDir);
+        }
+
         int exitCode = process.exitValue();
         if (exitCode == 0) {
             return formatter.formatSuccess(rawOutput);
@@ -209,61 +234,11 @@ public class BashExecutor {
     }
 
     private void configureProcessBuilder(ProcessBuilder builder, String command) {
-        String shell = detectBash();
-        if (shell.equals("sh")) {
-            builder.command("sh", "-c", command);
-        } else if (shell.equals("bash")) {
-            builder.command("bash", "-c", command);
-        } else if (shell.equals("cmd")) {
-            builder.command("cmd", "/c", command);
-        } else {
-            builder.command(shell, "-c", command);
-        }
-    }
-
-    private synchronized String detectBash() {
-        if (shellDetected) {
-            return detectedShell;
-        }
-        String os = System.getProperty("os.name", "").toLowerCase();
-        if (!os.contains("windows")) {
-            detectedShell = "sh";
-            shellDetected = true;
-            return detectedShell;
-        }
-
-        try {
-            ProcessBuilder testBuilder = new ProcessBuilder("bash", "-c", "echo test");
-            testBuilder.redirectErrorStream(true);
-            Process test = testBuilder.start();
-            if (test.waitFor(3, TimeUnit.SECONDS) && test.exitValue() == 0) {
-                detectedShell = "bash";
-                shellDetected = true;
-                log.info("[BashExecutor] Detected global bash");
-                return detectedShell;
-            }
-        } catch (Exception e) {
-            // fall through
-        }
-
-        String[][] gitBashPaths = {
-                {"C:\\Program Files\\Git\\bin\\bash.exe", "Git Bash (默认)"},
-                {System.getProperty("user.home") + "\\AppData\\Local\\Programs\\Git\\bin\\bash.exe", "Git Bash (用户)"},
-        };
-        for (String[] pathAndDesc : gitBashPaths) {
-            File bash = new File(pathAndDesc[0]);
-            if (bash.exists()) {
-                detectedShell = bash.getAbsolutePath();
-                shellDetected = true;
-                log.info("[BashExecutor] Detected {}: {}", pathAndDesc[1], detectedShell);
-                return detectedShell;
-            }
-        }
-
-        detectedShell = "cmd";
-        shellDetected = true;
-        log.warn("[BashExecutor] No bash found, falling back to cmd");
-        return detectedShell;
+        String[] shellPrefix = OsHelper.current().getShellCommandPrefix();
+        String[] fullCmd = new String[shellPrefix.length + 1];
+        System.arraycopy(shellPrefix, 0, fullCmd, 0, shellPrefix.length);
+        fullCmd[fullCmd.length - 1] = command;
+        builder.command(fullCmd);
     }
 
     private Charset detectCharset() {

@@ -99,7 +99,15 @@ public class ResponseFormatter {
      * 格式化待审批响应
      */
     public String formatPending(String ticketId, String message) {
-        return String.format("⏸️ %s\n\n票根ID: %s\n\n请在界面中审批此命令", message, ticketId);
+        return String.format("""
+            ⏸️ %s
+
+            票根ID: %s
+
+            请在界面中审批此命令，或通过以下方式批准：
+            - 在界面中点击批准按钮
+            - 调用 POST /approval 接口，body: {"ticketId": "%s", "approved": true, "command": "<完整命令>"}
+            """, message, ticketId, ticketId);
     }
 
     /**
@@ -107,6 +115,13 @@ public class ResponseFormatter {
      */
     public String formatBackgroundStarted(String pid, String command) {
         return String.format("✅ 后台命令已启动\n\nPID: %s\n命令: %s", pid, command);
+    }
+
+    /**
+     * 格式化破坏性命令警告（附加到成功/错误输出中）
+     */
+    public String formatDestructiveWarning(String command) {
+        return String.format("⚠️ 【警告】破坏性命令: %s\n", command);
     }
 
     /**

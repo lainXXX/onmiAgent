@@ -39,7 +39,7 @@ public class WorkingDirectoryManager {
     );
 
     private static final Pattern PWD_PATTERN = Pattern.compile(
-        "(/[a-zA-Z]:[/\\\\][^\n]*|/home/[^\n]*)"
+        "(/[a-zA-Z]:[/\\\\][^\\n]*|/home/[^\\n]*)"
     );
 
     private final Path projectRoot;
@@ -113,6 +113,26 @@ public class WorkingDirectoryManager {
     }
 
     /**
+     * 当 BashExecutor 解析出新的 effectiveWorkspace 时同步 currentDir
+     * 防止用户通过 userWorkspace 参数逃逸
+     */
+    public void syncWorkspace(String workspace) {
+        if (workspace == null || workspace.isBlank()) return;
+        try {
+            Path newWs = normalize(workspace);
+            if (isWithinProject(newWs)) {
+                this.currentDir = newWs;
+                log.debug("[WorkingDirectoryManager] workspace 同步: {}", currentDir);
+            } else {
+                log.warn("[WorkingDirectoryManager] workspace 不在项目目录下: {}, 保持: {}",
+                         newWs, currentDir);
+            }
+        } catch (Exception e) {
+            log.warn("[WorkingDirectoryManager] workspace 同步异常: {}", workspace, e);
+        }
+    }
+
+    /**
      * 验证路径是否在项目根目录下
      */
     public boolean isWithinProject(Path dir) {
@@ -143,17 +163,7 @@ public class WorkingDirectoryManager {
     }
 
     private String normalizeGitBashPath(String path) {
-        // Git Bash 风格: /c/Users/... -> C:/Users/...
-        if (path.matches("^/[a-z]/.*") || path.matches("^/[A-Z]/.*")) {
-            char drive = Character.toUpperCase(path.charAt(1));
-            String rest = path.substring(3).replace("/", "\\");
-            return drive + ":\\" + rest;
-        }
-        // 已有 Windows 风格路径
-        if (path.matches("^[a-zA-Z]:.*")) {
-            return path.replace("/", "\\");
-        }
-        return path;
+        return OsHelper.current().normalizePath(path);
     }
 
     /**

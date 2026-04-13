@@ -30,7 +30,10 @@ public class CommandSemantics {
         "find", "xargs",
         "test", "[",
         "diff", "cmp", "comm",
-        "python", "python3", "pip", "node"
+        "python", "python3", "pip", "node",
+        "systemctl", "service", "journalctl",
+        "docker", "docker-compose", "kubectl",
+        "awk", "sed", "grep", "cut", "sort", "uniq", "wc"
     );
 
     private final Map<String, BiFunction<Integer, String, String>> semantics;
@@ -47,6 +50,7 @@ public class CommandSemantics {
             Map.entry("pnpm", this::interpretNpm),
             Map.entry("docker", this::interpretDocker),
             Map.entry("docker-compose", this::interpretDocker),
+            Map.entry("kubectl", this::interpretKubectl),
             Map.entry("find", this::interpretFind),
             Map.entry("test", this::interpretTest),
             Map.entry("[", this::interpretTest),
@@ -54,7 +58,13 @@ public class CommandSemantics {
             Map.entry("python", this::interpretPython),
             Map.entry("python3", this::interpretPython),
             Map.entry("pip", this::interpretPip),
-            Map.entry("node", this::interpretNode)
+            Map.entry("node", this::interpretNode),
+            Map.entry("systemctl", this::interpretSystemctl),
+            Map.entry("service", this::interpretService),
+            Map.entry("journalctl", this::interpretJournalctl),
+            Map.entry("awk", this::interpretAwk),
+            Map.entry("sed", this::interpretSed),
+            Map.entry("kubectl", this::interpretKubectl)
         );
     }
 
@@ -279,6 +289,82 @@ public class CommandSemantics {
                 yield "Node.js 脚本执行失败";
             }
             default -> "Node.js 异常退出 (exit " + exitCode + ")";
+        };
+    }
+
+    private String interpretSystemctl(int exitCode, String output) {
+        if (output == null) output = "";
+        return switch (exitCode) {
+            case 0 -> "服务操作成功";
+            case 1 -> {
+                if (output.contains("not found")) yield "服务不存在";
+                if (output.contains("failed")) yield "服务执行失败: " + firstErrorLine(output);
+                if (output.contains("active (exited)")) yield "服务已运行（正常）";
+                if (output.contains("inactive")) yield "服务已停止";
+                yield "systemctl 操作失败";
+            }
+            case 3 -> "服务不存在或未运行";
+            case 4 -> "服务状态未知";
+            default -> "systemctl 异常退出 (exit " + exitCode + ")";
+        };
+    }
+
+    private String interpretService(int exitCode, String output) {
+        if (output == null) output = "";
+        return switch (exitCode) {
+            case 0 -> "服务操作成功";
+            case 1 -> "服务操作失败: " + firstErrorLine(output);
+            case 2 -> "服务脚本不存在";
+            default -> "service 异常退出 (exit " + exitCode + ")";
+        };
+    }
+
+    private String interpretJournalctl(int exitCode, String output) {
+        if (output == null) output = "";
+        return switch (exitCode) {
+            case 0 -> "日志查询成功";
+            case 1 -> "日志参数错误或无匹配结果";
+            case 2 -> "journalctl 执行错误";
+            default -> "journalctl 异常退出 (exit " + exitCode + ")";
+        };
+    }
+
+    private String interpretKubectl(int exitCode, String output) {
+        if (output == null) output = "";
+        return switch (exitCode) {
+            case 0 -> "Kubernetes 操作成功";
+            case 1 -> {
+                if (output.contains("NotFound")) yield "资源不存在";
+                if (output.contains("AlreadyExists")) yield "资源已存在";
+                if (output.contains("Unauthorized")) yield "Kubernetes 认证失败";
+                if (output.contains("Forbidden")) yield "权限不足";
+                if (output.contains("Connection refused")) yield "Kubectl 无法连接到集群";
+                if (output.contains("error:")) yield "Kubectl 执行错误: " + firstErrorLine(output);
+                yield "Kubectl 操作失败";
+            }
+            case 2 -> " kubectl 命令行参数错误";
+            default -> "Kubectl 异常退出 (exit " + exitCode + ")";
+        };
+    }
+
+    private String interpretAwk(int exitCode, String output) {
+        return switch (exitCode) {
+            case 0 -> "AWK 脚本执行成功";
+            case 1 -> {
+                if (output != null && !output.isEmpty()) yield "AWK 执行完成（部分记录无匹配）";
+                yield "AWK 无匹配结果";
+            }
+            case 2 -> "AWK 脚本语法错误";
+            default -> "AWK 异常退出 (exit " + exitCode + ")";
+        };
+    }
+
+    private String interpretSed(int exitCode, String output) {
+        return switch (exitCode) {
+            case 0 -> "sed 执行成功";
+            case 1 -> "sed 执行失败（可能正则无效或文件不可写）";
+            case 4 -> "sed 致命错误";
+            default -> "sed 异常退出 (exit " + exitCode + ")";
         };
     }
 

@@ -61,6 +61,9 @@ public class ApprovalService {
         return new CheckResult(CheckResult.Status.PENDING, ticketId, "⏸️ 命令待审批: " + command);
     }
 
+    /**
+     * 提交审批（需提供完整命令以防篡改）
+     */
     public boolean submitApproval(String ticketId, String command, boolean approved) {
         String normalized = normalize(command);
         ApprovalEntry entry = tickets.get(ticketId);
@@ -83,6 +86,35 @@ public class ApprovalService {
 
         log.info("[ApprovalService] Ticket {} approved={}", ticketId, approved);
         return true;
+    }
+
+    /**
+     * 快捷审批（仅需 ticketId），适用于用户在界面直接批准已知的命令。
+     * 注意：仅当票根状态为待审批时有效。
+     */
+    public boolean quickApprove(String ticketId) {
+        ApprovalEntry entry = tickets.get(ticketId);
+        if (entry == null) {
+            log.warn("[ApprovalService] Ticket not found for quick approve: {}", ticketId);
+            return false;
+        }
+        if (entry.approved() != null) {
+            log.warn("[ApprovalService] Ticket {} already processed (approved={})", ticketId, entry.approved());
+            return false;
+        }
+        tickets.compute(ticketId, (k, v) -> {
+            if (v == null) return null;
+            return new ApprovalEntry(v.normalizedCommand(), true, v.timestamp());
+        });
+        log.info("[ApprovalService] Ticket {} quick-approved", ticketId);
+        return true;
+    }
+
+    /**
+     * 查询票根状态（不含消费，用于展示）
+     */
+    public ApprovalEntry getEntry(String ticketId) {
+        return tickets.get(ticketId);
     }
 
     public CheckResult checkAndConsume(String ticketId, String command) {

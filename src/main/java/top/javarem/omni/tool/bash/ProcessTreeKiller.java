@@ -21,13 +21,8 @@ public class ProcessTreeKiller {
         } catch (Exception ignored) {
         }
 
-        String os = System.getProperty("os.name").toLowerCase();
-        if (os.contains("windows")) {
-            runCommand("cmd", "/c", "taskkill /F /T /PID " + pid);
-        } else {
-            runCommand("pkill", "-P", String.valueOf(pid));
-            runCommand("kill", "-9", String.valueOf(pid));
-        }
+        String[] killCmd = OsHelper.current().buildKillCommand(pid);
+        runCommand(killCmd);
     }
 
     private void runCommand(String... command) {
