@@ -136,7 +136,7 @@ public class SkillDiscovery {
      * 使用 ResourcePatternResolver 发现 BUNDLED 资源
      */
     private DiscoveredSkill discoverBundled(String skillName) {
-        String pattern = SkillSource.BUNDLED.getPathPrefix() + "/" + skillName + "/SKILL.md";
+        String pattern = SkillSource.BUNDLED.getFullSearchPath(null, null, skillName);
         try {
             org.springframework.core.io.Resource[] resources =
                 resourcePatternResolver.getResources(pattern);
@@ -158,35 +158,20 @@ public class SkillDiscovery {
             return null; // BUNDLED 不走此路径
         }
 
-        String basePath;
-        if (source.needsUserHome()) {
-            basePath = resolveRootPath();
-        } else if (source.isProjectLevel()) {
-            basePath = ""; // 项目根目录
-        } else {
-            basePath = resolveRootPath();
-        }
+        String rootPath = resolveRootPath();
+        String projectRoot = System.getProperty("user.dir").replace("\\", "/");
+        String fullPath = source.getFullSearchPath(rootPath, projectRoot, skillName);
 
-        String relativePath = source.getRelativeFilePath(skillName);
-        return Paths.get(basePath, relativePath);
+        return Paths.get(fullPath);
     }
 
     /**
      * 构建 glob 搜索模式
      */
     private String buildGlobPattern(SkillSource source) {
-        if (source.isBundled()) {
-            return SkillSource.BUNDLED.getPathPrefix() + "/**/SKILL.md";
-        }
-
-        String basePath;
-        if (source.needsUserHome()) {
-            basePath = resolveRootPath();
-        } else {
-            basePath = ""; // 项目根目录
-        }
-
-        return basePath + source.getPathPrefix() + "/**/SKILL.md";
+        String rootPath = resolveRootPath();
+        String projectRoot = System.getProperty("user.dir").replace("\\", "/");
+        return source.getGlobPattern(rootPath, projectRoot);
     }
 
     /**

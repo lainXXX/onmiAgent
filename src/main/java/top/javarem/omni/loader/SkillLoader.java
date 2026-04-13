@@ -1,20 +1,15 @@
 package top.javarem.omni.loader;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.document.Document;
 import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.core.io.support.ResourcePatternResolver;
 import org.springframework.core.io.support.ResourcePatternUtils;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 import org.yaml.snakeyaml.Yaml;
@@ -27,7 +22,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import jakarta.annotation.PostConstruct;
@@ -35,55 +32,37 @@ import jakarta.annotation.PostConstruct;
 /**
  * @Author: rem
  * @Date: 2026/03/09/21:32
- * @Description: Skill 发现服务，负责扫描 skills 目录、解析 YAML 元数据并存储到向量库
- *
+ * @Description: Skill 发现服务，负责扫描 skills 目录、解析 YAML 元数据并缓存描述文本
  */
 @Slf4j
 @Service
 public class SkillLoader {
 
     private final ResourcePatternResolver resourcePatternResolver;
-    private final VectorStore vectorStore;
     private final Yaml yaml;
-    private final JdbcTemplate pgVectorJdbcTemplate;
-    private final ObjectMapper objectMapper;
     private final ChatModel chatModel;
 
-
-    // 可变前缀
     @Value("${skill.discovery.root:classpath:/}")
     private String skillRootPath;
 
-    // 文件结构
     @Value("${skill.discovery.path:/skills/**/SKILL.md}")
     private String skillStructure;
 
-    // 是否启用技能发现
     @Value("${skill.discovery.enabled:true}")
     private boolean enabled;
 
-    // Skills Guide 生成配置
     @Value("${skill.guide.enabled:true}")
     private boolean guideEnabled;
 
     @Value("${skill.guide.output-path:${skill.discovery.root}}")
     private String guideOutputPath;
 
-    /**
-     * Skills 描述缓存
-     * 避免每次请求都重新构建描述文本
-     */
     private volatile String cachedSkillsDescription = null;
 
-    public SkillLoader(ResourceLoader resourceLoader, VectorStore vectorStore,
-                       @Qualifier("pgVectorJdbcTemplate") JdbcTemplate pgVectorJdbcTemplate,
-                       ObjectMapper objectMapper,
+    public SkillLoader(ResourceLoader resourceLoader,
                        @Qualifier("minimaxChatModel") ChatModel chatModel) {
         this.resourcePatternResolver = ResourcePatternUtils.getResourcePatternResolver(resourceLoader);
-        this.vectorStore = vectorStore;
-        this.objectMapper = objectMapper;
         this.yaml = new Yaml();
-        this.pgVectorJdbcTemplate = pgVectorJdbcTemplate;
         this.chatModel = chatModel;
     }
 
@@ -179,45 +158,67 @@ public class SkillLoader {
         return DigestUtils.md5DigestAsHex(sb.toString().getBytes(StandardCharsets.UTF_8));
     }
 
-    /**
-     * 生成期望的 Guide 文件名
-     */
-    private String computeGuideFileName(String hash) {
-        return "skills_guide_" + hash.substring(0, 8) + ".md";
-    }
+    private static final String SKILLS_GUIDE_FILE = "skills_guide.md";
 
     /**
      * 检查并生成 Skills Guide
      */
     private void generateSkillsGuideIfNeeded(List<SkillMetadata> skills) {
         try {
-            // 1. 计算哈希
             String hash = computeSkillsHash(skills);
-            String fileName = computeGuideFileName(hash);
+            String fileName = SKILLS_GUIDE_FILE;
             String outputDir = guideOutputPath.replace("file:", "");
 
-            // 2. 检查文件是否存在
             Path guideFile = Path.of(outputDir, fileName);
-            if (Files.exists(guideFile)) {
-                log.debug("[SkillsGuide] Guide 文件已存在，跳过: {}", guideFile);
+
+            // 检查是否需要重新生成：文件不存在 或 hash 变化
+            String storedHash = readStoredHash(guideFile);
+            if (Files.exists(guideFile) && hash.equals(storedHash)) {
+                log.debug("[SkillsGuide] Guide 无变化，跳过: {}", guideFile);
                 return;
             }
 
-            // 3. 调用 LLM 生成 Guide
+            // 调用 LLM 生成 Guide
             log.info("[SkillsGuide] 开始生成 Guide: {}, Skill 数量={}", guideFile, skills.size());
             String guideContent = generateSkillsGuide(skills);
 
-            // 4. 保存文件
             if (guideContent == null || guideContent.isBlank()) {
                 log.warn("[SkillsGuide] LLM 返回为空，跳过保存");
                 return;
             }
-            Files.writeString(guideFile, guideContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+
+            // 写入文件，头部嵌入 hash
+            String content = "---\nhash: " + hash + "\n---\n\n" + guideContent;
+            Files.writeString(guideFile, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
             log.info("[SkillsGuide] Guide 生成成功: {}", guideFile);
 
         } catch (Exception e) {
             log.error("[SkillsGuide] Guide 生成失败", e);
         }
+    }
+
+    /**
+     * 读取文件中存储的 hash
+     */
+    private String readStoredHash(Path guideFile) {
+        try {
+            String content = Files.readString(guideFile, StandardCharsets.UTF_8);
+            String trimmed = content.trim();
+            if (trimmed.startsWith("---")) {
+                int endIndex = trimmed.indexOf("---", 3);
+                if (endIndex > 0) {
+                    String frontmatter = trimmed.substring(3, endIndex).trim();
+                    for (String line : frontmatter.split("\n")) {
+                        if (line.startsWith("hash:")) {
+                            return line.substring(5).trim();
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[SkillsGuide] 读取 stored hash 失败: {}", guideFile);
+        }
+        return null;
     }
 
     /**
@@ -287,139 +288,6 @@ public class SkillLoader {
                     .content();
     }
 
-    /**
-     * 批量执行删除、添加、更新操作
-     */
-    private void executeBatchOperations(List<String> toDelete,
-                                       List<Document> toAdd,
-                                       List<Map<String, Object>> toUpdateMetadata) {
-
-        // 4.1 批量删除（优化：合并为一次删除）
-        if (!toDelete.isEmpty()) {
-            try {
-                for (String skillName : toDelete) {
-                    vectorStore.delete("type == 'skill' AND skillName == '" + escapeFilter(skillName) + "'");
-                }
-                log.debug("批量删除 {} 条记录", toDelete.size());
-            } catch (Exception e) {
-                log.error("批量删除失败", e);
-            }
-        }
-
-        // 4.2 批量添加
-        if (!toAdd.isEmpty()) {
-            try {
-                vectorStore.add(toAdd);
-                log.debug("批量添加 {} 条记录", toAdd.size());
-            } catch (Exception e) {
-                log.error("批量添加失败", e);
-            }
-        }
-
-        // 4.3 批量更新元数据（SQL 更新，零 token）
-        if (!toUpdateMetadata.isEmpty()) {
-            try {
-                for (var update : toUpdateMetadata) {
-                    updateMetadataOnly(
-                            (String) update.get("docId"),
-                            (String) update.get("path"),
-                            (String) update.get("mHash")
-                    );
-                }
-                log.debug("批量更新 {} 条元数据", toUpdateMetadata.size());
-            } catch (Exception e) {
-                log.error("批量更新元数据失败", e);
-            }
-        }
-    }
-
-    /**
-     * 转义过滤条件，防止 SQL 注入
-     */
-    private String escapeFilter(String input) {
-        if (input == null) return "";
-        return input.replace("'", "''");
-    }
-
-    /**
-     * 转义百分号，防止 String.formatted() 解析失败
-     */
-    private String escapePercent(String input) {
-        if (input == null) return "";
-        // 转义 % 为 %%，但保留已经是格式说明符的 %s, %d, %f 等
-        // 使用负向后瞻：匹配 % 后面不是有效转换符的情况
-        return input.replaceAll("%(?![0-9$+\\-#,.<(]?[a-zA-Z])", "%%");
-    }
-
-    /**
-     * 添加文档
-     * 需要向量化的文档（即技能描述）
-     * @param metadata 技能元数据
-     * @param sHash 语义哈希
-     * @param mHash 元数据哈希
-     * @param documents 文档列表
-     */
-    private void prepareDocument(SkillMetadata metadata, String sHash, String mHash, List<Document> documents) {
-        if (metadata != null) {
-            // 创建文档，description 用于向量检索
-            Document doc = new Document(
-                    metadata.getDescription(),
-                    Map.of(
-                            "skillName", metadata.getName(),
-                            "path", metadata.getPath().replace("\\", "/"), // 标准化路径
-                            "semanticHash", sHash,
-                            "metadataHash", mHash,
-                            "type", "skill"
-                    )
-            );
-            documents.add(doc);
-        }
-    }
-
-    /**
-     * 更新元数据（仅更新路径等元信息，零 token 消耗）
-     * @param docId 文档 ID
-     * @param path 文件路径
-     * @param mHash 元数据哈希
-     */
-    private void updateMetadataOnly(String docId, String path, String mHash) {
-        // 使用 PostgreSQL 的 JSONB 拼接操作符 ||（metadata 列是 json 类型，需要显式转换为 jsonb）
-        String sql = "UPDATE vector_store SET metadata = metadata::jsonb || ?::jsonb WHERE id = ?::uuid";
-
-        try {
-            Map<String, Object> updates = Map.of(
-                    "path", path    ,
-                    "metadataHash", mHash
-            );
-            String json = objectMapper.writeValueAsString(updates);
-            pgVectorJdbcTemplate.update(sql, json, docId);
-        } catch (Exception e) {
-            log.error("SQL 更新元数据失败: docId={}", docId, e);
-        }
-    }
-
-    /**
-     * 获取语义哈希
-     * @param description 描述内容
-     * @return 语义哈希值
-     */
-    private String getSemanticHash(String description) {
-        if (description == null) return "";
-        // 1. 统一换行符 2. 去除首尾空格 3. 转小写(可选，视业务而定)
-        String normalized = description.replace("\r\n", "\n").trim();
-        return DigestUtils.md5DigestAsHex(normalized.getBytes(StandardCharsets.UTF_8));
-    }
-
-    /**
-     * 获取元数据哈希
-     * @param skillName 技能名称
-     * @param path 文件路径
-     * @return 元数据哈希值
-     */
-    private String getMetadataHash(String skillName, String path) {
-        String combined = skillName + "|" + path.replace("\\", "/");
-        return DigestUtils.md5DigestAsHex(combined.getBytes(StandardCharsets.UTF_8));
-    }
 
     /**
      * 解析 SKILL.md 文件，提取 YAML 前置元数据
@@ -505,70 +373,4 @@ public class SkillLoader {
         }
     }
 
-    /**
-     * 加载数据库中现有的所有技能快照
-     */
-    private Map<String, SkillSnapshot> loadAllDbSkills() {
-
-        /**
-         * SQL 查询语句
-         *
-         * 为什么不用IN条件而是做skill全量加载？
-         * 1. 解决"僵尸数据"问题（物理删除同步）
-         *
-         * 如果你使用 IN (:localNames) 查询：
-         *  - 数据库只会返回本地还存在的技能。
-         *  - 如果昨天你删除了 old-skill.md，今天的 IN 查询结果里根本不会出现 old-skill。
-         *  - 结果：数据库里的 old-skill 永远无法被清理掉，变成"僵尸数据"。
-         *
-         * 如果你使用 全量加载：
-         *  - 你会拿到数据库里所有的技能。
-         *  - 通过 dbSnapshot.remove(localName)，剩下的就是本地已经不存在的。
-         *  - 结果：你可以实现真正的双向同步（本地删，数据库也删）。
-         *
-         * 2.内存与性能
-         *  即使有几百上千个skill描述，内存占用也就100KB ~ 5MB，性能损耗很低。
-         *  况且正常用户不会创建那么多个skill（通常5~20个）
-         * TODO 后续如果涉及到用户隔离等 可在WHERE条件中添加用户过滤等
-         */
-        String sql = """
-        SELECT id, 
-               metadata->>'skillName' as name, 
-               metadata->>'semanticHash' as s_hash, 
-               metadata->>'metadataHash' as m_hash,
-               metadata->>'path' as path
-        FROM vector_store 
-        WHERE metadata->>'type' = 'skill'
-        """;
-
-        return pgVectorJdbcTemplate.query(sql, (rs) -> {
-            Map<String, SkillSnapshot> map = new HashMap<>();
-            while (rs.next()) {
-                String name = rs.getString("name");
-                if (name != null) {
-                    map.put(name, new SkillSnapshot(
-                            rs.getString("id"),
-                            rs.getString("s_hash"),
-                            rs.getString("m_hash"),
-                            rs.getString("path")
-                    ));
-                }
-            }
-            return map;
-        });
-    }
-
-    /**
-     * 技能快照（Snapshot）
-     * @param docId 数据库里的主键 UUID
-     * @param semanticHash 语义指纹 (sHash)
-     * @param metadataHash 元数据指纹 (mHash)
-     * @param path 文件路径
-     */
-    public record SkillSnapshot(
-            String docId,
-            String semanticHash,
-            String metadataHash,
-            String path
-    ) {}
 }

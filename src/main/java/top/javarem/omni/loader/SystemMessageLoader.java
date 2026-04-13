@@ -53,14 +53,26 @@ public class SystemMessageLoader {
         }
     }
 
-    @Value("classpath:skills_guide_f7a66173.md")
+    @Value("file:${user.home}/.omni/skills_guide.md")
     private Resource skillsGuide;
 
     public String loadSkillsGuide() {
         try {
-            return skillsGuide.getContentAsString(StandardCharsets.UTF_8);
+            String content = skillsGuide.getContentAsString(StandardCharsets.UTF_8);
+            return stripFrontmatter(content);
         } catch (IOException e) {
             return "";
         }
+    }
+
+    private String stripFrontmatter(String content) {
+        String trimmed = content.trim();
+        if (trimmed.startsWith("---")) {
+            int endIndex = trimmed.indexOf("---", 3);
+            if (endIndex > 0) {
+                return trimmed.substring(endIndex + 3).trim();
+            }
+        }
+        return content;
     }
 }
