@@ -1,11 +1,15 @@
 package top.javarem.omni.tool.file;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 import top.javarem.omni.model.context.AdvisorContextConstants;
+import top.javarem.omni.model.context.ReadState;
+import top.javarem.omni.model.context.ReadStateHolder;
 import top.javarem.omni.tool.AgentTool;
 
 import java.io.BufferedReader;
@@ -20,6 +24,7 @@ import java.util.*;
 /**
  * Read 文件读取工具
  * 获取文件具体内容，支持分页读取
+ * 集成 dedup 机制避免重复读取未修改的文件
  */
 @Component
 @Slf4j
@@ -55,6 +60,8 @@ public class ReadToolConfig implements AgentTool {
         String workspace = extractWorkspace(context);
         log.info("[read] 开始执行: path={}, startLine={}, maxLines={}, workspace={}",
                 filePath, startLine, maxLines, workspace);
+        // 0. Dedup 状态持有器
+        ReadStateHolder stateHolder = ReadStateHolder.fromContext(context);
 
         // 1. 参数校验
         if (filePath == null || filePath.trim().isEmpty()) {
@@ -81,7 +88,30 @@ public class ReadToolConfig implements AgentTool {
             return buildFileNotFoundResponse(normalizedPath, workspace);
         }
 
-        // 5. 文件大小检查
+        // 5. 分页参数归一化
+        int start = (startLine == null || startLine < 1) ? DEFAULT_START_LINE : startLine;
+        int max = (maxLines == null || maxLines < 1) ? DEFAULT_MAX_LINES
+                : Math.min(maxLines, MAX_ALLOWED_LINES);
+
+        // 6. Dedup: 检查是否有缓存的读取状态
+        ReadState existingState = stateHolder.get(normalizedPath);
+        if (existingState != null
+                && !existingState.isPartialView()
+                && existingState.matchesRange(start, max)) {
+            // 文件已被完整读取且范围匹配，检查 mtime 是否变化
+            try {
+                long currentMtime = Files.getLastModifiedTime(targetPath).toMillis();
+                if (existingState.isUnchanged(currentMtime)) {
+                    log.info("[read] Dedup 命中: path={}, 文件未修改，返回 unchanged", normalizedPath);
+                    return buildUnchangedResponse(normalizedPath);
+                }
+            } catch (IOException e) {
+                // 无法获取 mtime，继续正常读取
+                log.warn("[read] 获取文件 mtime 失败: path={}, error={}", normalizedPath, e.getMessage());
+            }
+        }
+
+        // 7. 文件大小检查
         try {
             long fileSize = Files.size(targetPath);
             if (fileSize > MAX_FILE_SIZE_BYTES) {
@@ -93,14 +123,19 @@ public class ReadToolConfig implements AgentTool {
                     "请检查文件路径是否正确");
         }
 
-        // 6. 分页参数归一化
-        int start = (startLine == null || startLine < 1) ? DEFAULT_START_LINE : startLine;
-        int max = (maxLines == null || maxLines < 1) ? DEFAULT_MAX_LINES
-                : Math.min(maxLines, MAX_ALLOWED_LINES);
-
-        // 7. 读取文件
+        // 8. 读取文件
         try {
-            return readFileContent(targetPath, normalizedPath, start, max);
+            long mtime = Files.getLastModifiedTime(targetPath).toMillis();
+            String content = readFileContent(targetPath, normalizedPath, start, max);
+
+            // 9. 更新 dedup 状态（仅对完整读取更新状态）
+            if (start == 1 && max >= DEFAULT_MAX_LINES) {
+                ReadState newState = new ReadState(content, mtime, start, null);
+                stateHolder.put(normalizedPath, newState);
+                log.debug("[read] 更新 dedup 状态: path={}, state={}", normalizedPath, newState);
+            }
+
+            return content;
         } catch (Exception e) {
             log.error("[read] 失败: path={}, error={}", normalizedPath, e.getMessage(), e);
             return buildErrorResponse("文件读取失败: " + e.getMessage(),
@@ -205,7 +240,7 @@ public class ReadToolConfig implements AgentTool {
             }
 
             // 检测 BOM
-            if (len >= 3 && (sample[0] & 0xFF) == 0xEF && (sample[1] & 0xFF) == 0xBB && (sample[2] & 0xFF) == 0xBF) {
+            if (len >= 3 && (sample[0] & 0xFF) == 0xef && (sample[1] & 0xFF) == 0xBB && (sample[2] & 0xFF) == 0xBF) {
                 return StandardCharsets.UTF_8;
             }
 
@@ -250,6 +285,11 @@ public class ReadToolConfig implements AgentTool {
     // 响应构建
     // ============================================================
 
+    private String buildUnchangedResponse(String filePath) {
+        return "📖 文件: " + filePath + "\n\n" +
+                "[文件未修改，上次已读取完整内容]";
+    }
+
     private String buildFileNotFoundResponse(String filePath, String workspace) {
         StringBuilder sb = new StringBuilder();
         sb.append("❌ 文件不存在: ").append(filePath).append("\n\n");
@@ -264,7 +304,7 @@ public class ReadToolConfig implements AgentTool {
             if (parent != null && Files.exists(parent)) {
                 sb.append("\n📂 父目录下的文件:\n");
                 Files.list(parent)
-                        .filter(p -> Files.isRegularFile(p))
+                        .filter(Files::isRegularFile)
                         .limit(10)
                         .forEach(p -> sb.append("  - ").append(p.getFileName()).append("\n"));
             }

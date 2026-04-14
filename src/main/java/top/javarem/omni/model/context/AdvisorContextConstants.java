@@ -15,6 +15,18 @@ public final class AdvisorContextConstants {
 
     public static final String WORKSPACE = "workspace";
 
+    /**
+     * Read 工具的 dedup 状态存储
+     * Key: 文件路径, Value: ReadState
+     */
+    public static final String READ_STATE_MAP = "read_state_map";
+
+    /**
+     * 标识消息是否为系统注入（非用户直接产生）
+     * 用于区分普通对话上下文和系统注入的上下文
+     */
+    public static final String OMNI_INJECTED = "omni_injected";
+
     public enum Phase {
         INITIAL_REQUEST,    // 1. 初始请求阶段（第一次进来，还没问模型）
         MODEL_THINKING,     // 2. 模型思考中（已发出请求，等待模型决定是否要调工具）

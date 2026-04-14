@@ -6,6 +6,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 import top.javarem.omni.model.context.AdvisorContextConstants;
+import top.javarem.omni.model.context.ReadStateHolder;
 import top.javarem.omni.tool.AgentTool;
 
 import java.io.IOException;
@@ -48,6 +49,9 @@ public class EditToolConfig implements AgentTool {
             ToolContext context) {
         String workspace = extractWorkspace(context);
         log.info("[edit] 开始执行: path={}, workspace={}", filePath, workspace);
+
+        // 0. 获取 dedup 状态持有器（用于清除缓存）
+        ReadStateHolder stateHolder = ReadStateHolder.fromContext(context);
 
         // 1. 参数校验
         if (filePath == null || filePath.trim().isEmpty()) {
@@ -100,6 +104,10 @@ public class EditToolConfig implements AgentTool {
             if (!result.success) {
                 return result.errorMessage;
             }
+
+            // 7. 编辑成功后清除 read dedup 缓存
+            stateHolder.remove(normalizedPath);
+            log.debug("[edit] 清除 read dedup 缓存: path={}", normalizedPath);
 
             log.info("[edit] 完成: path={}, matches={}", normalizedPath, result.matchCount);
             return buildSuccessResponse(normalizedPath, result.matchCount);
