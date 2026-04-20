@@ -4,6 +4,7 @@ import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -116,6 +117,29 @@ public class ApprovalService {
     public ApprovalEntry getEntry(String ticketId) {
         return tickets.get(ticketId);
     }
+
+    /**
+     * 获取所有待审批的票根（用于前端轮询）
+     */
+    public List<ApprovalEntry> getPendingTickets() {
+        return tickets.values().stream()
+                .filter(e -> e.approved() == null)  // 未处理
+                .filter(e -> System.currentTimeMillis() - e.timestamp() < TimeUnit.MINUTES.toMillis(TTL_MINUTES))
+                .toList();
+    }
+
+    /**
+     * 获取所有待审批的票根（包含 ID，用于前端轮询）
+     */
+    public List<PendingTicket> getPendingTicketsWithId() {
+        return tickets.entrySet().stream()
+                .filter(e -> e.getValue().approved() == null)  // 未处理
+                .filter(e -> System.currentTimeMillis() - e.getValue().timestamp() < TimeUnit.MINUTES.toMillis(TTL_MINUTES))
+                .map(e -> new PendingTicket(e.getKey(), e.getValue()))
+                .toList();
+    }
+
+    public record PendingTicket(String ticketId, ApprovalEntry entry) {}
 
     public CheckResult checkAndConsume(String ticketId, String command) {
         String normalized = normalize(command);
