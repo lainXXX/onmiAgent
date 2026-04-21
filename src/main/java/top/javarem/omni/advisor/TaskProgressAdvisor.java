@@ -1,20 +1,17 @@
 package top.javarem.omni.advisor;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClientMessageAggregator;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.BaseAdvisor;
-import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Component;
-import reactor.core.publisher.Flux;
+import top.javarem.omni.chat.repository.ChatMemoryRepository;
 import top.javarem.omni.model.task.TaskEntity;
-import top.javarem.omni.repository.chat.MemoryRepository;
 import top.javarem.omni.service.task.TaskService;
 
 import java.time.LocalDateTime;
@@ -35,12 +32,12 @@ public class TaskProgressAdvisor implements BaseAdvisor {
     private static final int ORDER = Integer.MAX_VALUE - 100;
 
     private final TaskService taskService;
-    private final MemoryRepository memoryRepository;
+    private final ChatMemoryRepository chatMemoryRepository;
     private final Map<String, Long> lastNagTime = new ConcurrentHashMap<>();
 
-    public TaskProgressAdvisor(TaskService taskService, MemoryRepository memoryRepository) {
+    public TaskProgressAdvisor(TaskService taskService, ChatMemoryRepository chatMemoryRepository) {
         this.taskService = taskService;
-        this.memoryRepository = memoryRepository;
+        this.chatMemoryRepository = chatMemoryRepository;
         log.info("[TaskProgressAdvisor] 初始化完成, ORDER={}", ORDER);
     }
 
@@ -153,7 +150,7 @@ public class TaskProgressAdvisor implements BaseAdvisor {
 
     private int calculateRoundsSince(String sessionId, LocalDateTime taskUpdatedAt) {
         try {
-            List<Message> messages = memoryRepository.findMessagesByConversationId(sessionId);
+            List<Message> messages = chatMemoryRepository.findMessagesByConversationId(sessionId);
             long cutoffMs = taskUpdatedAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
             return (int) messages.stream()
                 .filter(m -> m.getMetadata() != null)
@@ -172,7 +169,7 @@ public class TaskProgressAdvisor implements BaseAdvisor {
 
     private int calculateTotalRounds(String sessionId) {
         try {
-            return memoryRepository.findMessagesByConversationId(sessionId).size() / 2;
+            return chatMemoryRepository.findMessagesByConversationId(sessionId).size() / 2;
         } catch (Exception e) {
             return 0;
         }

@@ -17,7 +17,7 @@ import reactor.core.publisher.Flux;
 import top.javarem.omni.loader.SystemMessageLoader;
 import top.javarem.omni.model.context.AdvisorContextConstants;
 import top.javarem.omni.loader.SkillLoader;
-import top.javarem.omni.repository.chat.MemoryRepository;
+import top.javarem.omni.chat.repository.ChatMemoryRepository;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,13 +33,13 @@ import java.util.Map;
 public class MessageFormatAdvisor implements BaseAdvisor {
 
     private final SkillLoader skillLoader;
-    private final MemoryRepository memoryRepository;
+    private final ChatMemoryRepository chatMemoryRepository;
     private final SystemMessageLoader systemMessageLoader;
     private final ChatClientMessageAggregator aggregator = new ChatClientMessageAggregator();
 
-    public MessageFormatAdvisor(SkillLoader skillLoader, MemoryRepository memoryRepository, SystemMessageLoader systemMessageLoader) {
+    public MessageFormatAdvisor(SkillLoader skillLoader, ChatMemoryRepository chatMemoryRepository, SystemMessageLoader systemMessageLoader) {
         this.skillLoader = skillLoader;
-        this.memoryRepository = memoryRepository;
+        this.chatMemoryRepository = chatMemoryRepository;
         this.systemMessageLoader = systemMessageLoader;
     }
 
@@ -75,7 +75,7 @@ public class MessageFormatAdvisor implements BaseAdvisor {
 
         // 4. 历史记忆消息
         if (conversationId != null) {
-            List<Message> memoryMessages = memoryRepository.findMessagesByConversationId(conversationId);
+            List<Message> memoryMessages = chatMemoryRepository.findMessagesByConversationId(conversationId);
             if (memoryMessages != null) {
                 messages.addAll(memoryMessages);
             }

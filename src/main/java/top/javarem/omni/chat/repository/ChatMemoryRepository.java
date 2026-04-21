@@ -8,6 +8,11 @@ import org.springframework.stereotype.Repository;
 import top.javarem.omni.chat.entity.ChatMemory;
 import top.javarem.omni.chat.entity.MessageType;
 
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -98,5 +103,72 @@ public class ChatMemoryRepository {
             """;
         Integer result = jdbcTemplate.queryForObject(sql, Integer.class, sessionId);
         return result != null ? result : 0;
+    }
+
+    /**
+     * 根据会话ID查询消息列表（返回 Spring AI Message）
+     */
+    public List<Message> findMessagesByConversationId(String conversationId) {
+        String sql = """
+            WITH RECURSIVE ctx AS (
+                SELECT * FROM chat_memory WHERE session_id = ? AND parent_id IS NULL
+                UNION ALL
+                SELECT m.* FROM chat_memory m INNER JOIN ctx ON ctx.id = m.parent_id
+            )
+            SELECT * FROM ctx ORDER BY created_at
+            """;
+        return jdbcTemplate.query(sql, (rs, rowNum) -> {
+            String type = rs.getString("message_type");
+            String content = rs.getString("content");
+            return restoreMessage(content, type);
+        }, conversationId);
+    }
+
+    private Message restoreMessage(String content, String type) {
+        if (content == null) {
+            content = "";
+        }
+        return switch (type) {
+            case "USER" -> new UserMessage(content);
+            case "ASSISTANT" -> new AssistantMessage(content);
+            case "SYSTEM" -> new SystemMessage(content);
+            default -> new UserMessage(content);
+        };
+    }
+
+    // ==================== 向后兼容方法 (Legacy) ====================
+
+    /**
+     * 保存用户消息（兼容旧 API）
+     */
+    public Long saveUserMessage(String conversationId, String userId, String content) {
+        String sql = """
+            INSERT INTO chat_memory (id, parent_id, conversation_id, user_id, message_type, content)
+            VALUES (?, NULL, ?, ?, 'USER', ?)
+            """;
+        String id = java.util.UUID.randomUUID().toString();
+        jdbcTemplate.update(sql, id, conversationId, userId, content);
+        // Return auto-increment ID (old behavior)
+        return jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    /**
+     * 压缩聊天记忆（兼容旧 API）
+     */
+    public int compress(String conversationId, int keepHead, int keepTail, String summaryId) {
+        String sql = """
+            UPDATE chat_memory
+            SET is_compressed = 1,
+                compressed_by = ?,
+                compressed_at = NOW()
+            WHERE conversation_id = ?
+            AND id NOT IN (
+              SELECT id FROM (SELECT id FROM chat_memory WHERE conversation_id = ? ORDER BY id ASC LIMIT ?) as h
+              UNION
+              SELECT id FROM (SELECT id FROM chat_memory WHERE conversation_id = ? ORDER BY id DESC LIMIT ?) as t
+            )
+            AND is_compressed = 0
+            """;
+        return jdbcTemplate.update(sql, summaryId, conversationId, conversationId, keepHead, conversationId, keepTail);
     }
 }

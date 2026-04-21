@@ -22,7 +22,7 @@ import top.javarem.omni.model.compression.MicroCompactor;
 import top.javarem.omni.model.compression.SnipCompactor;
 import top.javarem.omni.model.compression.TokenEstimator;
 import top.javarem.omni.model.context.AdvisorContextConstants;
-import top.javarem.omni.repository.chat.MemoryRepository;
+import top.javarem.omni.chat.repository.ChatMemoryRepository;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -40,7 +40,7 @@ public class ContextCompressionAdvisor implements BaseAdvisor {
     private final ContextCompressionProperties properties;
     private final SnipCompactor snipCompactor;
     private final MicroCompactor microCompactor;
-    private final MemoryRepository memoryRepository;
+    private final ChatMemoryRepository chatMemoryRepository;
 
     private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
     private volatile boolean circuitBreakerOpen = false;
@@ -86,12 +86,12 @@ public class ContextCompressionAdvisor implements BaseAdvisor {
             ContextCompressionProperties properties,
             SnipCompactor snipCompactor,
             MicroCompactor microCompactor,
-            MemoryRepository memoryRepository) {
+            ChatMemoryRepository chatMemoryRepository) {
         this.chatModel = chatModel;
         this.properties = properties;
         this.snipCompactor = snipCompactor;
         this.microCompactor = microCompactor;
-        this.memoryRepository = memoryRepository;
+        this.chatMemoryRepository = chatMemoryRepository;
     }
 
     // ==================== BaseAdvisor 接口实现 ====================
@@ -339,12 +339,12 @@ public class ContextCompressionAdvisor implements BaseAdvisor {
     private void asyncSaveCompressionResult(String conversationId, CompressionResult result) {
         new Thread(() -> {
             try {
-                Long summaryMsgId = memoryRepository.saveUserMessage(
+                Long summaryMsgId = chatMemoryRepository.saveUserMessage(
                         conversationId,
                         "system",
                         result.getSummaryContent()
                 );
-                memoryRepository.compress(
+                chatMemoryRepository.compress(
                         conversationId,
                         properties.getKeepEarliest(),
                         properties.getKeepRecent(),
