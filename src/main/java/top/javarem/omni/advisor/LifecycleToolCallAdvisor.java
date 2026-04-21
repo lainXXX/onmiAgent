@@ -14,6 +14,7 @@ import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import top.javarem.omni.advisor.hook.HookRegistry;
+import top.javarem.omni.chat.advisor.ChatMemoryAdvisor;
 import top.javarem.omni.model.AgentFinishStatus;
 import top.javarem.omni.model.context.AdvisorContextConstants;
 
@@ -44,6 +45,7 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
 
     private final HookRegistry hookRegistry;
     private final ThreadPoolExecutor threadPoolExecutor;
+    private final ChatMemoryAdvisor chatMemoryAdvisor;
 
     private static final String TOOL_HISTORY_HOLDER = "TOOL_HISTORY_HOLDER";
     private static final int ORDER = Integer.MAX_VALUE - 1000;
@@ -51,10 +53,12 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
     protected LifecycleToolCallAdvisor(
             ToolCallingManager toolCallingManager,
             HookRegistry hookRegistry,
-            ThreadPoolExecutor threadPoolExecutor) {
+            ThreadPoolExecutor threadPoolExecutor,
+            ChatMemoryAdvisor chatMemoryAdvisor) {
         super(toolCallingManager, ORDER, true);
         this.hookRegistry = hookRegistry;
         this.threadPoolExecutor = threadPoolExecutor;
+        this.chatMemoryAdvisor = chatMemoryAdvisor;
     }
 
     // ==================== Session Lifecycle ====================
@@ -63,6 +67,8 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
     protected ChatClientRequest doInitializeLoop(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
         // Hook: SessionStart
         hookRegistry.onSessionStart(chatClientRequest);
+        // 保存用户消息
+        chatMemoryAdvisor.saveUserMessage(chatClientRequest);
 
         return super.doInitializeLoop(chatClientRequest, callAdvisorChain);
     }
@@ -71,6 +77,8 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
     protected ChatClientRequest doInitializeLoopStream(ChatClientRequest chatClientRequest, StreamAdvisorChain streamAdvisorChain) {
         // Hook: SessionStart
         hookRegistry.onSessionStart(chatClientRequest);
+        // 保存用户消息
+        chatMemoryAdvisor.saveUserMessage(chatClientRequest);
 
         return super.doInitializeLoopStream(chatClientRequest, streamAdvisorChain);
     }
@@ -205,31 +213,8 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
     // ==================== 消息存储 ====================
 
     private void storeAssistantMessage(ChatClientResponse response, Map<String, Object> context) {
-        if (response == null || response.chatResponse() == null) return;
-
-        try {
-            if (response.chatResponse().getResults().isEmpty()) {
-                log.debug("[storeAssistantMessage] 结果为空，跳过保存");
-                return;
-            }
-
-            String finishReason = response.chatResponse().getResults().get(0).getMetadata().getFinishReason();
-            if (!AgentFinishStatus.STOP.equals(AgentFinishStatus.from(finishReason))) {
-                log.debug("[storeAssistantMessage] 非正常结束 finishReason={}, 跳过保存", finishReason);
-                return;
-            }
-
-            AssistantMessage assistantMessage = response.chatResponse().getResults().get(0).getOutput();
-            String text = assistantMessage.getText();
-            if (text == null || text.isBlank()) {
-                log.debug("[storeAssistantMessage] 文本为空, 跳过保存");
-                return;
-            }
-
-            log.info("[storeAssistantMessage] 助手消息处理完成 textLength={}", text.length());
-        } catch (Exception e) {
-            log.error("解析工具调用历史发生异常", e);
-        }
+        // 委托给 ChatMemoryAdvisor 保存
+        chatMemoryAdvisor.saveAssistantMessage(response, context);
     }
 
     @Override

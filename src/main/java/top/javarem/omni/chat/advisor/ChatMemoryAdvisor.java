@@ -65,13 +65,22 @@ public class ChatMemoryAdvisor {
      * 保存助手消息
      */
     public void saveAssistantMessage(ChatClientResponse response, ChatClientRequest request) {
+        if (request != null) {
+            saveAssistantMessage(response, request.context());
+        }
+    }
+
+    /**
+     * 保存助手消息（带 context）
+     */
+    public void saveAssistantMessage(ChatClientResponse response, java.util.Map<String, Object> context) {
         try {
             if (response == null || response.chatResponse() == null) {
                 return;
             }
 
-            String sessionId = extractSessionId(request);
-            String userId = extractUserId(request);
+            String sessionId = extractSessionId(context);
+            String userId = extractUserId(context);
 
             if (sessionId == null || userId == null) {
                 return;
@@ -119,15 +128,23 @@ public class ChatMemoryAdvisor {
     // ==================== 工具方法 ====================
 
     private String extractSessionId(ChatClientRequest request) {
-        if (request.context() != null && request.context().containsKey("sessionId")) {
-            return request.context().get("sessionId").toString();
+        return request != null ? extractSessionId(request.context()) : null;
+    }
+
+    private String extractSessionId(java.util.Map<String, Object> context) {
+        if (context != null && context.containsKey("sessionId")) {
+            return context.get("sessionId").toString();
         }
         return null;
     }
 
     private String extractUserId(ChatClientRequest request) {
-        if (request.context() != null && request.context().containsKey("userId")) {
-            return request.context().get("userId").toString();
+        return request != null ? extractUserId(request.context()) : null;
+    }
+
+    private String extractUserId(java.util.Map<String, Object> context) {
+        if (context != null && context.containsKey("userId")) {
+            return context.get("userId").toString();
         }
         return null;
     }
