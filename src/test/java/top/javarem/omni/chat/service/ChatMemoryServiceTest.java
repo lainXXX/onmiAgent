@@ -1,79 +1,134 @@
 package top.javarem.omni.chat.service;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import top.javarem.omni.chat.entity.ChatMemory;
 import top.javarem.omni.chat.entity.ChatSession;
 import top.javarem.omni.chat.entity.MessageType;
+import top.javarem.omni.chat.repository.ChatMemoryRepository;
+import top.javarem.omni.chat.repository.ChatSessionRepository;
 
 import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
-@SpringBootTest
-@ActiveProfiles("test")
+@ExtendWith(MockitoExtension.class)
 class ChatMemoryServiceTest {
 
-    @Autowired
-    private ChatMemoryService chatMemoryService;
+    @Mock
+    private ChatMemoryRepository memoryRepository;
 
-    @Autowired
-    private ChatSessionService chatSessionService;
+    @Mock
+    private ChatSessionRepository sessionRepository;
+
+    private ChatMemoryServiceImpl chatMemoryService;
+
+    @BeforeEach
+    void setUp() {
+        chatMemoryService = new ChatMemoryServiceImpl(memoryRepository, sessionRepository);
+    }
 
     @Test
     void testSaveMessage() {
+        String sessionId = UUID.randomUUID().toString();
         String userId = "test-user";
-        ChatSession session = chatSessionService.createSession(userId);
-        String sessionId = session.getId();
 
-        ChatMemory msg = chatMemoryService.saveMessage(
+        // Mock: session exists with headId = null
+        ChatSession session = ChatSession.builder()
+                .id(sessionId)
+                .userId(userId)
+                .headId(null)
+                .build();
+        when(sessionRepository.findById(sessionId)).thenReturn(session);
+
+        // 执行
+        ChatMemory result = chatMemoryService.saveMessage(
                 sessionId, MessageType.user, "Hello", null, null, 10, 5);
 
-        assertNotNull(msg.getId());
-        assertNull(msg.getParentId());  // 第一条消息无 parent
-        assertEquals("Hello", msg.getContent());
-        assertEquals(15, msg.getTotalTokens());
+        // 验证
+        assertNotNull(result.getId());
+        assertNull(result.getParentId());
+        assertEquals(sessionId, result.getSessionId());
+        assertNull(result.getUserId()); // userId 不保存在 ChatMemory 中，只在 ChatSession 中
+        assertEquals(MessageType.user, result.getMessageType());
+        assertEquals("Hello", result.getContent());
+        assertEquals(15, result.getTotalTokens());
 
-        // 验证 HEAD 更新
-        ChatMemory head = chatMemoryService.getCurrentHead(sessionId);
-        assertEquals(msg.getId(), head.getId());
+        // 验证 repository 调用
+        verify(memoryRepository).save(any(ChatMemory.class));
+        verify(sessionRepository).updateHead(eq(sessionId), anyString());
     }
 
     @Test
     void testUndo() {
-        String userId = "test-user";
-        ChatSession session = chatSessionService.createSession(userId);
-        String sessionId = session.getId();
+        String sessionId = UUID.randomUUID().toString();
+        String parentId = UUID.randomUUID().toString();
 
-        // 保存两条消息
-        ChatMemory msg1 = chatMemoryService.saveMessage(
-                sessionId, MessageType.user, "Hello", null, null, 10, 5);
-        ChatMemory msg2 = chatMemoryService.saveMessage(
-                sessionId, MessageType.assistant, "Hi", null, null, 20, 10);
+        // Mock: session exists with current head
+        ChatSession session = ChatSession.builder()
+                .id(sessionId)
+                .userId("test")
+                .headId(parentId)
+                .build();
+        when(sessionRepository.findById(sessionId)).thenReturn(session);
 
-        // Undo
+        // Mock: current head has a parent
+        ChatMemory currentHead = ChatMemory.builder()
+                .id(parentId)
+                .parentId(UUID.randomUUID().toString())
+                .sessionId(sessionId)
+                .build();
+        when(memoryRepository.findById(parentId)).thenReturn(currentHead);
+
+        // 执行
         chatMemoryService.undo(sessionId);
 
-        // 验证 HEAD 回退到 msg1
-        ChatMemory head = chatMemoryService.getCurrentHead(sessionId);
-        assertEquals(msg1.getId(), head.getId());
+        // 验证 updateHead 被调用
+        verify(sessionRepository).updateHead(eq(sessionId), eq(currentHead.getParentId()));
     }
 
     @Test
     void testGetContext() {
-        String userId = "test-user";
-        ChatSession session = chatSessionService.createSession(userId);
-        String sessionId = session.getId();
+        String sessionId = UUID.randomUUID().toString();
+        String headId = UUID.randomUUID().toString();
 
-        chatMemoryService.saveMessage(sessionId, MessageType.user, "Hello", null, null, 10, 5);
-        chatMemoryService.saveMessage(sessionId, MessageType.assistant, "Hi", null, null, 20, 10);
+        // Mock: session exists
+        ChatSession session = ChatSession.builder()
+                .id(sessionId)
+                .userId("test")
+                .headId(headId)
+                .build();
+        when(sessionRepository.findById(sessionId)).thenReturn(session);
 
-        List<ChatMemory> context = chatMemoryService.getContext(sessionId);
-        assertEquals(2, context.size());
-        assertEquals("Hello", context.get(0).getContent());
-        assertEquals("Hi", context.get(1).getContent());
+        // Mock: return context
+        List<ChatMemory> context = List.of(
+                ChatMemory.builder().id("1").content("Hello").build(),
+                ChatMemory.builder().id("2").content("Hi").build()
+        );
+        when(memoryRepository.findContextBySessionId(sessionId, headId)).thenReturn(context);
+
+        // 执行
+        List<ChatMemory> result = chatMemoryService.getContext(sessionId);
+
+        // 验证
+        assertEquals(2, result.size());
+        assertEquals("Hello", result.get(0).getContent());
+        assertEquals("Hi", result.get(1).getContent());
+    }
+
+    @Test
+    void testSumTokens() {
+        String sessionId = UUID.randomUUID().toString();
+        when(memoryRepository.sumTokensBySessionId(sessionId)).thenReturn(500);
+
+        int sum = chatMemoryService.sumTokens(sessionId);
+
+        assertEquals(500, sum);
     }
 }
