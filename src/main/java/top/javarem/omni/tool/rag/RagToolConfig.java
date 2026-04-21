@@ -33,6 +33,16 @@ import java.util.*;
 @Slf4j
 public class RagToolConfig implements AgentTool {
 
+    @Override
+    public String getName() {
+        return "semantic_search";
+    }
+
+    @Override
+    public boolean isCompactable() {
+        return false;
+    }
+
     private final VectorStore vectorStore;
     private final JdbcTemplate mysqlJdbcTemplate;
     private final JdbcTemplate pgVectorJdbcTemplate;

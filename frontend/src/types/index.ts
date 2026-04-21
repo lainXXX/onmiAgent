@@ -3,6 +3,7 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  blocks?: ChatStep[];
 }
 
 export interface Conversation {
@@ -37,4 +38,11 @@ export interface ChatRequest {
   question: string;
   sessionId: string;
   workspace?: string;
+}
+
+export interface ChatStep {
+  id: string;
+  type: 'thought' | 'tool-call' | 'text';
+  content: string;
+  toolName?: string;
 }

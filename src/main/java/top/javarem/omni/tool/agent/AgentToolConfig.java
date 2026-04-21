@@ -30,6 +30,11 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class AgentToolConfig implements AgentTool {
 
+    @Override
+    public String getName() {
+        return "Agent";
+    }
+
     private final AgentTaskRegistry registry;
     private final SubAgentChatClientFactory factory;
     private final WorktreeManager worktreeManager;

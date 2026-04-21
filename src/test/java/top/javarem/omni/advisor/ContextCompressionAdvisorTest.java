@@ -5,6 +5,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import top.javarem.omni.config.ContextCompressionProperties;
+import top.javarem.omni.model.compression.TokenEstimator;
 
 import java.util.List;
 
@@ -21,7 +22,7 @@ class ContextCompressionAdvisorTest {
     void isCompressionRequired_belowThreshold_returnsFalse() {
         ContextCompressionProperties props = new ContextCompressionProperties();
         props.setContextWindow(200000);
-        props.setThreshold(new java.math.BigDecimal("0.8"));
+        props.setThreshold(0.8);
         props.setKeepEarliest(1);
         props.setKeepRecent(2);
 
@@ -34,7 +35,7 @@ class ContextCompressionAdvisorTest {
         // Token count should be well below threshold
         long tokenCount = TokenEstimator.estimateMessages(messages);
         long threshold = new java.math.BigDecimal(props.getContextWindow())
-                .multiply(props.getThreshold()).longValue();
+                .multiply(java.math.BigDecimal.valueOf(props.getThreshold())).longValue();
 
         if (tokenCount <= threshold && messages.size() <= props.getKeepEarliest() + props.getKeepRecent()) {
             // Would not compress
@@ -46,7 +47,7 @@ class ContextCompressionAdvisorTest {
     void isCompressionRequired_aboveThresholdButSmallList_returnsFalse() {
         ContextCompressionProperties props = new ContextCompressionProperties();
         props.setContextWindow(100);
-        props.setThreshold(new java.math.BigDecimal("0.1"));
+        props.setThreshold(0.1);
         props.setKeepEarliest(1);
         props.setKeepRecent(1);
 

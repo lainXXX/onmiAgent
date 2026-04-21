@@ -5,8 +5,8 @@ import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { QuestionInline } from './components/QuestionInline';
 import { CommandApprovalInline } from './components/CommandApprovalInline';
-import { streamChat, checkPendingQuestions, checkPendingApprovals } from './api/chat';
-import type { Conversation, Message, Question } from './types';
+import { streamChat, checkPendingQuestions, connectApprovalEvents } from './api/chat';
+import type { Conversation, Message, Question, ChatStep } from './types';
 
 export function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -14,7 +14,13 @@ export function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
-  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => {
+    // Default to false on mobile, true on desktop
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1024;
+    }
+    return true;
+  });
   const [workspace, setWorkspace] = useState<string>(() => {
     return localStorage.getItem('omni-workspace') || '';
   });
@@ -27,9 +33,12 @@ export function App() {
     command: string;
     message: string;
   } | null>(null);
+  const [streamingBlocks, setStreamingBlocks] = useState<ChatStep[]>([]);
+  const [streamingBlockId, setStreamingBlockId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const approvalSseRef = useRef<{ eventSource: EventSource; controller: AbortController } | null>(null);
 
   const activeConversation = conversations.find((c) => c.id === activeId);
 
@@ -42,27 +51,32 @@ export function App() {
     scrollToBottom();
   }, [messages, streamingContent, scrollToBottom]);
 
-  // Poll for pending questions and dangerous command approvals
+  // 建立 SSE 连接监听审批事件（实时推送）
+  const startApprovalSse = useCallback(() => {
+    if (approvalSseRef.current) return;
+    const { eventSource, controller } = connectApprovalEvents((ticketId, command, message) => {
+      setPendingApproval({ ticketId, command, message });
+      setIsStreaming(false);
+    });
+    approvalSseRef.current = { eventSource, controller };
+  }, []);
+
+  const stopApprovalSse = useCallback(() => {
+    if (approvalSseRef.current) {
+      approvalSseRef.current.eventSource.close();
+      approvalSseRef.current.controller.abort();
+      approvalSseRef.current = null;
+    }
+  }, []);
+
+  // Poll for pending questions（保留轮询作为备用）
   const startPolling = useCallback(() => {
     if (pollingRef.current) return;
     pollingRef.current = setInterval(async () => {
       try {
-        // Check for pending approvals (dangerous commands)
-        const approvals = await checkPendingApprovals();
-        if (approvals.length > 0) {
-          const approval = approvals[0];
-          setPendingApproval({
-            ticketId: approval.ticketId,
-            command: approval.command,
-            message: '危险命令待审批',
-          });
-          setIsStreaming(false);
-          stopPolling();
-          return;
-        }
         // Check for pending questions
         const pending = await checkPendingQuestions();
-        if (pending.hasQuestion && pending.questionId && pending.questions.length > 0) {
+        if (pending && pending.hasQuestion && pending.questionId && pending.questions.length > 0) {
           setPendingQuestion({
             questionId: pending.questionId,
             questions: pending.questions,
@@ -186,12 +200,20 @@ export function App() {
 
     setIsStreaming(true);
     setStreamingContent('');
+    setStreamingBlocks([]);
     setPendingQuestion(null);
     setPendingApproval(null);
+    startApprovalSse();  // 使用 SSE 实时监听审批事件
     startPolling();
 
     try {
       let fullContent = '';
+      // 用于按 ID 缓冲文本内容
+      const thoughtBufferById: Record<string, string> = {};
+      const textBufferById: Record<string, string> = {};
+      const blocksLocal: ChatStep[] = [];
+      setStreamingBlocks(blocksLocal);
+
       for await (const event of streamChat(text, activeConversation.sessionId, workspace)) {
         if (event.type === 'ask-user-question') {
           setIsStreaming(false);
@@ -203,8 +225,71 @@ export function App() {
           return;
         }
 
-        if (event.type === 'text' && event.data) {
+        if (event.type === 'dangerous-command') {
+          setIsStreaming(false);
+          setPendingApproval({
+            ticketId: event.ticketId!,
+            command: event.command!,
+            message: event.data || '危险命令待审批',
+          });
+          stopPolling();
+          return;
+        }
+
+        if (event.type === 'thought' && event.data) {
           fullContent += event.data;
+          // 按 ID 累加 thought 内容
+          const id = event.id || 'default';
+          if (!thoughtBufferById[id]) {
+            thoughtBufferById[id] = '';
+          }
+          thoughtBufferById[id] += event.data.replace(/^\n/, '');
+
+          // 更新或创建 thought block
+          const existingThoughtIdx = blocksLocal.findIndex(b => b.type === 'thought' && b.id === id);
+          if (existingThoughtIdx >= 0) {
+            blocksLocal[existingThoughtIdx].content = thoughtBufferById[id];
+          } else {
+            blocksLocal.push({
+              id: id,
+              type: 'thought',
+              content: thoughtBufferById[id],
+              toolName: undefined,
+            });
+          }
+          setStreamingBlockId(id);
+          setStreamingBlocks([...blocksLocal]);
+          setStreamingContent(fullContent);
+        } else if (event.type === 'tool-call' && event.toolName) {
+          fullContent += `\n[Tool: ${event.toolName}]\n`;
+          // 将工具调用关联到最后一个 thought block
+          const lastThought = blocksLocal.filter(b => b.type === 'thought').pop();
+          if (lastThought) {
+            lastThought.toolName = event.toolName;
+          }
+          setStreamingBlocks([...blocksLocal]);
+          setStreamingContent(fullContent);
+        } else if (event.type === 'text' && event.id && event.data) {
+          // 按 ID 缓冲文本
+          if (!textBufferById[event.id]) {
+            textBufferById[event.id] = '';
+          }
+          textBufferById[event.id] += event.data.replace(/^\n/, '');
+          fullContent += event.data;
+
+          // 更新最后一个 text block 或创建新的
+          const lastBlock = blocksLocal[blocksLocal.length - 1];
+          if (lastBlock && lastBlock.type === 'text') {
+            lastBlock.content = textBufferById[event.id];
+          } else {
+            blocksLocal.push({
+              id: event.id,
+              type: 'text',
+              content: textBufferById[event.id],
+            });
+          }
+          setStreamingBlockId(event.id);
+          setStreamingBlocks([...blocksLocal]);
           setStreamingContent(fullContent);
         }
       }
@@ -214,6 +299,7 @@ export function App() {
         role: 'assistant',
         content: fullContent,
         timestamp: Date.now(),
+        blocks: blocksLocal,
       };
 
       setMessages((prev) => {
@@ -229,12 +315,13 @@ export function App() {
     } finally {
       setIsStreaming(false);
       stopPolling();
+      stopApprovalSse();  // 关闭 SSE 连接
     }
   };
 
   const handleQuestionAnswered = (answerText: string) => {
     setPendingQuestion(null);
-    // 将用户回答作为新消息发送，自动触发新的 stream
+    // 将用户回答作为新消息发送，让后端处理
     handleSend(answerText);
   };
 
@@ -246,31 +333,47 @@ export function App() {
   };
 
   return (
-    <div className="flex h-full bg-white dark:bg-gray-900">
+    <div className="flex h-full bg-zinc-950">
+      {/* Mobile backdrop for left sidebar */}
       {leftSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+          onClick={() => setLeftSidebarOpen(false)}
+        />
+      )}
+
+      {/* Left Sidebar */}
+      <div
+        className={`fixed lg:relative z-40 h-full transition-transform duration-200 ${
+          leftSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+      >
         <Sidebar
           conversations={conversations}
           activeId={activeId}
-          onSelect={handleSelectChat}
+          onSelect={(id) => {
+            handleSelectChat(id);
+            setLeftSidebarOpen(false);
+          }}
           onNew={handleNewChat}
           onDelete={handleDeleteChat}
           onRename={handleRenameChat}
         />
-      )}
+      </div>
 
       <main className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex items-center gap-3">
+        <header className="px-4 md:px-6 py-3 md:py-4 border-b border-zinc-800 bg-zinc-950 flex items-center gap-3">
           <button
             onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
-            className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900 rounded-lg transition-colors"
             title={leftSidebarOpen ? '隐藏侧边栏' : '显示侧边栏'}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d={leftSidebarOpen ? 'M11 19l-7-7 7-7' : 'M13 5l7 7-7 7'} />
             </svg>
           </button>
-          <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
+          <h1 className="text-base md:text-lg font-semibold text-zinc-200 truncate">
             {activeConversation?.title || 'OmniAgent'}
           </h1>
         </header>
@@ -279,9 +382,9 @@ export function App() {
         <div className="flex-1 overflow-y-auto">
           {messages.length === 0 && !isStreaming && !streamingContent && !pendingQuestion && (
             <div className="flex items-center justify-center h-full">
-              <div className="text-center text-gray-500 dark:text-gray-400">
+              <div className="text-center text-zinc-500">
                 <svg
-                  className="w-16 h-16 mx-auto mb-4 text-purple-400"
+                  className="w-16 h-16 mx-auto mb-4 text-zinc-600"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -293,7 +396,7 @@ export function App() {
                     d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
                   />
                 </svg>
-                <p className="text-lg">Start a conversation with OmniAgent</p>
+                <p className="text-lg text-zinc-300">Start a conversation with OmniAgent</p>
                 <p className="text-sm mt-1">Ask questions, search knowledge base, or request actions</p>
               </div>
             </div>
@@ -303,45 +406,51 @@ export function App() {
             <ChatMessage key={msg.id} message={msg} />
           ))}
 
-          {isStreaming && streamingContent && (
+          {isStreaming && streamingBlocks.length > 0 && (
             <ChatMessage
               message={{
                 id: 'streaming',
                 role: 'assistant',
                 content: streamingContent,
                 timestamp: Date.now(),
+                blocks: streamingBlocks,
               }}
+              streamingBlockId={streamingBlockId}
+              isStreaming={isStreaming}
             />
           )}
 
           {isStreaming && !streamingContent && (
-            <div className="flex gap-3 p-4">
-              <div className="w-9 h-9 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-                <span className="text-gray-500 dark:text-gray-400 text-sm font-semibold">AI</span>
+            <div className="flex gap-2 sm:gap-3 p-3 sm:p-4">
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-zinc-800 flex items-center justify-center">
+                <span className="text-zinc-400 text-xs sm:text-sm font-semibold">AI</span>
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                  <span className="text-xs font-medium text-zinc-500 uppercase tracking-wide">
                     OmniAgent
                   </span>
-                  <span className="flex gap-1">
-                    <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  <span className="relative flex gap-1">
+                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    {/* 发光背景 */}
+                    <span className="absolute inset-0 bg-blue-500/30 rounded-full animate-ping opacity-75" />
                   </span>
                 </div>
+                <div className="mt-1 text-xs text-zinc-600 animate-pulse">正在思考...</div>
               </div>
             </div>
           )}
 
           {pendingQuestion && (
-            <div className="px-4">
-              <div className="flex gap-3 p-4 bg-purple-50 dark:bg-purple-950/20 rounded-lg">
-                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
+            <div className="px-2 sm:px-4">
+              <div className="flex gap-2 sm:gap-3 p-3 sm:p-4 bg-zinc-900/50 rounded-lg border border-zinc-800">
+                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-300 font-semibold text-xs sm:text-sm flex-shrink-0">
                   AI
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium text-purple-600 dark:text-purple-400 mb-2 uppercase tracking-wide">
+                  <div className="text-xs font-medium text-blue-400 mb-2 uppercase tracking-wide">
                     OmniAgent has a question
                   </div>
                   <QuestionInline
@@ -355,13 +464,13 @@ export function App() {
           )}
 
           {pendingApproval && (
-            <div className="px-4">
-              <div className="flex gap-3 p-4 bg-purple-50 dark:bg-purple-950/20 rounded-lg">
-                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
+            <div className="px-2 sm:px-4">
+              <div className="flex gap-2 sm:gap-3 p-3 sm:p-4 bg-zinc-900/50 rounded-lg border border-zinc-800">
+                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-300 font-semibold text-xs sm:text-sm flex-shrink-0">
                   AI
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium text-purple-600 dark:text-purple-400 mb-2 uppercase tracking-wide">
+                  <div className="text-xs font-medium text-amber-400 mb-2 uppercase tracking-wide">
                     危险命令待审批
                   </div>
                   <CommandApprovalInline
@@ -379,10 +488,15 @@ export function App() {
         </div>
 
         {/* Input */}
-        <ChatInput onSend={handleSend} disabled={isStreaming || !!pendingApproval} />
+        <ChatInput
+          onSend={handleSend}
+          disabled={isStreaming || !!pendingApproval}
+          workspace={workspace}
+          onWorkspaceChange={setWorkspace}
+        />
       </main>
 
-      <ToolsSidebar workspace={workspace} onWorkspaceChange={setWorkspace} />
+      <ToolsSidebar />
     </div>
   );
 }

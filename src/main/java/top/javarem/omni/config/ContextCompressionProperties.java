@@ -4,12 +4,26 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
-import java.math.BigDecimal;
-
 /**
- * @Author: rem
- * @Date: 2026/03/17/13:40
- * @Description: 上下文压缩属性配置
+ * 上下文压缩属性配置
+ *
+ * <p>支持 YAML 配置：
+ * <pre>
+ * spring.ai.context.compression:
+ *   enabled: true
+ *   context-window: 200000
+ *   keep-recent: 2
+ *   keep-earliest: 1
+ *   snip-enabled: true
+ *   micro-compact-enabled: true
+ *   gap-threshold-minutes: 60
+ *   micro-compact-keep-recent: 5
+ *   auto-compact-enabled: true
+ *   max-summary-tokens: 2000
+ *   circuit-breaker-enabled: true
+ *   max-consecutive-failures: 3
+ *   collapse-enabled: false
+ * </pre>
  */
 @Configuration
 @ConfigurationProperties(prefix = "spring.ai.context.compression", ignoreInvalidFields = true)
@@ -27,11 +41,6 @@ public class ContextCompressionProperties {
      * 上下文窗口大小
      */
     private Integer contextWindow = 200000;
-
-    /**
-     * 压缩阈值 (0.8 = 80%)
-     */
-    private BigDecimal threshold = new BigDecimal("0.8");
 
     /**
      * 保留尾部消息轮数
@@ -79,6 +88,28 @@ public class ContextCompressionProperties {
      */
     private Integer maxSummaryTokens = 2000;
 
+    /**
+     * AutoCompact Buffer Token 数
+     */
+    private Integer bufferTokens = 13000;
+
+    // ==================== Context Collapse 配置 ====================
+
+    /**
+     * 启用 Context Collapse
+     */
+    private boolean collapseEnabled = false;
+
+    /**
+     * Commit 阈值 (0.9 = 90%)
+     */
+    private Double collapseCommitThreshold = 0.90;
+
+    /**
+     * Block 阈值 (0.95 = 95%)
+     */
+    private Double collapseBlockThreshold = 0.95;
+
     // ==================== 电路断路器配置 ====================
 
     /**
@@ -91,4 +122,10 @@ public class ContextCompressionProperties {
      */
     private Integer maxConsecutiveFailures = 3;
 
+    // ==================== 兼容旧代码 ====================
+
+    /**
+     * 压缩阈值系数 (contextWindow * threshold = 压缩触发token数)
+     */
+    private Double threshold = 0.8;
 }

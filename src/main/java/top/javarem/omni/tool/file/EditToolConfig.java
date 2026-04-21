@@ -23,6 +23,16 @@ import java.util.regex.Pattern;
 @Slf4j
 public class EditToolConfig implements AgentTool {
 
+    @Override
+    public String getName() {
+        return "edit";
+    }
+
+    @Override
+    public boolean isCompactable() {
+        return false;
+    }
+
     private static final long MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
     private static final Set<String> BINARY_EXTENSIONS = Set.of(
@@ -41,7 +51,17 @@ public class EditToolConfig implements AgentTool {
      * @param context   ToolContext，用于获取动态 workspace
      * @return 编辑结果
      */
-    @Tool(name = "edit", description = "局部替换代码。约束：old_string必须精确匹配，匹配多处则拒绝")
+    @Tool(name = "edit", description = """
+            在文件中执行精确的字符串替换。
+            
+            用法：
+            -在编辑之前，您必须在对话中至少使用一次“阅读”工具。如果您在不读取文件的情况下尝试编辑，此工具将出错。
+            -编辑“读取”工具输出中的文本时，请确保保留行号前缀后显示的精确缩进（制表符/空格）。行号前缀格式为：空格+行号+制表符。制表符之后的所有内容都是要匹配的实际文件内容。切勿在old_string或new_string中包含行号前缀的任何部分。
+            -始终更喜欢编辑代码库中的现有文件。除非明确要求，否则切勿写入新文件。
+            -只有在用户明确要求的情况下才使用表情符号。除非被要求，否则避免将表情符号添加到文件中。
+            -如果“old_string”在文件中不是唯一的，则编辑将失败。要么提供一个更大的字符串，带有更多的上下文，使其唯一，要么使用`replace_all`来更改`old_string`的每个实例。
+            -使用`replace_all`替换和重命名整个文件中的字符串。例如，如果要重命名变量，此参数非常有用。
+            """)
     public String edit(
             @ToolParam(description = "目标文件路径") String filePath,
             @ToolParam(description = "原代码块。必须精确匹配(含空格缩进)") String oldString,

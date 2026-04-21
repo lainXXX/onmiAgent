@@ -29,6 +29,11 @@ import java.util.concurrent.TimeoutException;
 @Component
 public class TaskToolConfig implements AgentTool {
 
+    @Override
+    public String getName() {
+        return "Task";
+    }
+
     private static final long DEFAULT_TIMEOUT_MS = 30_000;
     private static final Set<String> VALID_STATUSES = Set.of("pending", "in_progress", "completed");
 

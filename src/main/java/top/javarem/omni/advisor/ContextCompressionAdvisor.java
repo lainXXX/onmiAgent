@@ -17,6 +17,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import top.javarem.omni.config.ContextCompressionProperties;
+import top.javarem.omni.model.compression.CompressionResult;
+import top.javarem.omni.model.compression.MicroCompactor;
+import top.javarem.omni.model.compression.SnipCompactor;
+import top.javarem.omni.model.compression.TokenEstimator;
 import top.javarem.omni.model.context.AdvisorContextConstants;
 import top.javarem.omni.repository.chat.MemoryRepository;
 
@@ -103,6 +107,9 @@ public class ContextCompressionAdvisor implements BaseAdvisor {
             List<Message> historyMessages = extractHistoryMessages(allMessages);
             int historyStartIndex = findHistoryStartIndex(allMessages);
 
+            long preTokens = TokenEstimator.estimateMessages(historyMessages);
+            log.info("[ContextCompression] 压缩前: {} 条消息, {} tokens", historyMessages.size(), preTokens);
+
             if (!isCompressionRequired(historyMessages)) {
                 return chatClientRequest;
             }
@@ -112,6 +119,36 @@ public class ContextCompressionAdvisor implements BaseAdvisor {
 
             if (result.isCompacted()) {
                 List<Message> compressedMessages = rebuildMessages(allMessages, historyStartIndex, result.getMessages());
+                long postTokens = TokenEstimator.estimateMessages(compressedMessages);
+                log.info("[ContextCompression] 压缩后: {} 条消息, {} tokens (释放: {}, 降幅: {:.1f}%)",
+                        compressedMessages.size(),
+                        postTokens,
+                        result.getFreedTokens(),
+                        100.0 * result.getFreedTokens() / preTokens);
+
+                // 调试：检查前3条和后3条消息的结构
+                log.debug("[ContextCompression] 压缩后消息结构:");
+                for (int i = 0; i < Math.min(3, compressedMessages.size()); i++) {
+                    Message msg = compressedMessages.get(i);
+                    log.debug("  [{}] {}: text长度={}, hasToolCalls={}",
+                            i, msg.getClass().getSimpleName(),
+                            msg.getText() != null ? msg.getText().length() : 0,
+                            msg instanceof AssistantMessage ?
+                                    ((AssistantMessage) msg).getToolCalls() != null &&
+                                            !((AssistantMessage) msg).getToolCalls().isEmpty() : false);
+                }
+                if (compressedMessages.size() > 6) {
+                    for (int i = Math.max(6, compressedMessages.size() - 3); i < compressedMessages.size(); i++) {
+                        Message msg = compressedMessages.get(i);
+                        log.debug("  [{}] {}: text长度={}, hasToolCalls={}",
+                                i, msg.getClass().getSimpleName(),
+                                msg.getText() != null ? msg.getText().length() : 0,
+                                msg instanceof AssistantMessage ?
+                                        ((AssistantMessage) msg).getToolCalls() != null &&
+                                                !((AssistantMessage) msg).getToolCalls().isEmpty() : false);
+                    }
+                }
+
                 ChatClientRequest modifiedRequest = modifyRequestMessages(chatClientRequest, compressedMessages);
 
                 // 异步保存压缩结果
@@ -135,16 +172,6 @@ public class ContextCompressionAdvisor implements BaseAdvisor {
     @Override
     public ChatClientResponse after(ChatClientResponse chatClientResponse, AdvisorChain advisorChain) {
         return chatClientResponse;
-    }
-
-    @Override
-    public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
-        return chain.nextCall(request);
-    }
-
-    @Override
-    public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
-        return chain.nextStream(request);
     }
 
     @Override
@@ -179,7 +206,7 @@ public class ContextCompressionAdvisor implements BaseAdvisor {
     public boolean isCompressionRequired(List<Message> messages) {
         long tokenCount = TokenEstimator.estimateMessages(messages);
         long contextThreshold = new BigDecimal(properties.getContextWindow())
-                .multiply(properties.getThreshold()).longValue();
+                .multiply(BigDecimal.valueOf(properties.getThreshold())).longValue();
 
         if (tokenCount <= contextThreshold) return false;
         if (messages.size() <= properties.getKeepEarliest() + properties.getKeepRecent()) return false;
@@ -202,6 +229,28 @@ public class ContextCompressionAdvisor implements BaseAdvisor {
             compressed = microResult.getMessages();
             log.info("MicroCompact: 清理 {} 条消息", microResult.getClearedCount());
         }
+
+        // ========== 临时调试日志：ContextCompressionAdvisor 最终压缩结果 ==========
+        long afterSnipMicroTokens = TokenEstimator.estimateMessages(compressed);
+        log.info("========== ContextCompressionAdvisor 压缩后(AutoCompact前) ==========");
+        for (int i = 0; i < compressed.size(); i++) {
+            Message msg = compressed.get(i);
+            String msgType = msg.getClass().getSimpleName();
+            boolean hasToolCallsFlag = msg instanceof AssistantMessage &&
+                    ((AssistantMessage) msg).getToolCalls() != null &&
+                    !((AssistantMessage) msg).getToolCalls().isEmpty();
+            String textPreview = msg.getText() == null ? "null" :
+                    (msg.getText().length() <= 100 ? msg.getText().replace("\n", "\\n") :
+                            msg.getText().substring(0, 100).replace("\n", "\\n") + "...");
+            log.info("  [{}] {}: text长度={}, hasToolCalls={}, text=\"{}\"",
+                    i, msgType,
+                    msg.getText() != null ? msg.getText().length() : 0,
+                    hasToolCallsFlag,
+                    textPreview);
+        }
+        log.info("  总计: {} 条消息, {} tokens", compressed.size(), afterSnipMicroTokens);
+        log.info("==============================================================");
+        // ========== 临时调试日志结束 ==========
 
         if (!properties.isAutoCompactEnabled()) {
             return CompressionResult.notCompacted(compressed, preTokens);

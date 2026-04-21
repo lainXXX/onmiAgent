@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Question } from '../types';
-import { skipQuestion as skipQuestionApi, submitAnswer as submitAnswerApi } from '../api/chat';
+import { skipQuestion as skipQuestionApi, submitQuestionAnswer as submitAnswerApi } from '../api/chat';
 
 interface QuestionInlineProps {
   questionId: string;
@@ -83,16 +83,16 @@ export function QuestionInline({ questionId, questions, onAnswered }: QuestionIn
   });
 
   return (
-    <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+    <div className="p-4 border-t border-zinc-800 bg-zinc-900/50">
       <div className="max-w-2xl mx-auto">
         {questions.map((question, qIdx) => (
           <div key={qIdx} className="mb-6 last:mb-0">
             <div className="flex items-center gap-2 mb-2">
-              <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 text-xs font-semibold rounded">
+              <span className="px-2 py-0.5 bg-zinc-800 text-blue-400 text-xs font-semibold rounded">
                 {question.header}
               </span>
             </div>
-            <p className="text-gray-800 dark:text-gray-200 font-medium mb-3">
+            <p className="text-zinc-200 font-medium mb-3">
               {question.question}
             </p>
             <div className="flex flex-wrap gap-2">
@@ -105,8 +105,8 @@ export function QuestionInline({ questionId, questions, onAnswered }: QuestionIn
                     onClick={() => handleOptionClick(qIdx, value, question)}
                     className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                       isSelected
-                        ? 'bg-purple-500 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-purple-100 dark:hover:bg-purple-900/30'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
                     }`}
                     title={option.description}
                   >
@@ -118,8 +118,8 @@ export function QuestionInline({ questionId, questions, onAnswered }: QuestionIn
                 onClick={() => handleOtherClick(qIdx, question)}
                 className={`px-4 py-2 rounded-full text-sm font-medium border-2 border-dashed transition-colors ${
                   answers[qIdx] === '__other__'
-                    ? 'bg-purple-500 text-white border-purple-500'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-400 hover:border-purple-500'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-zinc-800 text-zinc-300 border-zinc-600 hover:border-blue-500'
                 }`}
               >
                 其他
@@ -136,7 +136,7 @@ export function QuestionInline({ questionId, questions, onAnswered }: QuestionIn
                   onChange={(e) =>
                     setOtherTexts((prev) => ({ ...prev, [qIdx]: e.target.value }))
                   }
-                  className="w-full max-w-md px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full max-w-md px-4 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   autoFocus
                 />
               </div>
@@ -145,17 +145,17 @@ export function QuestionInline({ questionId, questions, onAnswered }: QuestionIn
         ))}
 
         {/* Actions */}
-        <div className="flex items-center gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-3 pt-4 border-t border-zinc-800">
           <button
             onClick={handleSkip}
-            className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+            className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
           >
             跳过
           </button>
           <button
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-500 transition-colors"
           >
             提交回答
           </button>

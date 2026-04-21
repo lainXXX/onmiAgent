@@ -661,6 +661,24 @@ public class AdvancedRagEtlService {
         }
     }
 
+    /**
+     * 根据文件ID删除向量库中的子块
+     */
+    public void deleteChildChunksByFileId(Long fileId) {
+        try {
+            // 从向量库表直接查询关联的子块ID
+            String sql = "SELECT id FROM vector_store WHERE metadata_->>'file_id' = ?";
+            List<String> ids = pgVectorJdbcTemplate.queryForList(sql, String.class, String.valueOf(fileId));
+
+            if (!ids.isEmpty()) {
+                log.info("[AdvancedRagEtlService] 删除 {} 个子块从向量库, fileId={}", ids.size(), fileId);
+                vectorStore.delete(ids);
+            }
+        } catch (Exception e) {
+            log.error("删除子块失败: fileId={}, error={}", fileId, e.getMessage());
+            throw e;
+        }
+    }
 
     /**
      * 解析结果内部类

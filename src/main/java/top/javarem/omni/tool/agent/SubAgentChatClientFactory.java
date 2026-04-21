@@ -17,6 +17,7 @@ import top.javarem.omni.tool.ToolsManager;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -126,11 +127,11 @@ public class SubAgentChatClientFactory {
 
             try {
                 List<Message> currentMessages = new ArrayList<>(messages);
-                Map<String, Object> toolContext = Map.of(
+                Map<String, Object> toolContext = new HashMap<>(Map.of(
                         "userId", userId,
                         "taskId", taskId,
                         "agentType", type.getValue()
-                );
+                ));
 
                 String content = client.prompt()
                         .messages(currentMessages)
@@ -183,11 +184,11 @@ public class SubAgentChatClientFactory {
                 .defaultTools(new StaticToolCallbackResolver(filteredCallbacks))
                 .build();
 
-        Map<String, Object> toolContext = Map.of(
+        Map<String, Object> toolContext = new HashMap<>(Map.of(
                 "userId", userId,
                 "taskId", taskId,
                 "agentType", type.getValue()
-        );
+        ));
 
         try {
             String content = client.prompt()

@@ -7,17 +7,15 @@ import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.ToolCallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
-import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
+import top.javarem.omni.advisor.hook.HookRegistry;
 import top.javarem.omni.model.AgentFinishStatus;
 import top.javarem.omni.model.context.AdvisorContextConstants;
-import top.javarem.omni.repository.chat.ChatHistoryRepository;
-import top.javarem.omni.repository.chat.MemoryRepository;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,63 +23,167 @@ import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * 生命周期工具调用 Advisor
+ *
+ * <p>继承自 Spring AI 的 ToolCallAdvisor，
+ * 负责管理工具调用循环的生命周期。
+ *
+ * <p>使用 HookRegistry 组合各种 Hook：
+ * <ul>
+ *   <li>SessionLifecycleHook - 会话开始/结束</li>
+ *   <li>PreToolUseHook - 工具调用前</li>
+ *   <li>PostToolUseHook - 工具调用后</li>
+ *   <li>CompressionHook - 压缩</li>
+ *   <li>StopHook - 工具链结束</li>
+ * </ul>
+ */
 @Component
 @Slf4j
 public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
 
+    private final HookRegistry hookRegistry;
     private final ThreadPoolExecutor threadPoolExecutor;
-    private final MemoryRepository memoryRepository;
-    private final ChatHistoryRepository chatHistoryRepository;
 
     private static final String TOOL_HISTORY_HOLDER = "TOOL_HISTORY_HOLDER";
-    private final static int ORDER = Integer.MAX_VALUE - 1000;
+    private static final int ORDER = Integer.MAX_VALUE - 1000;
 
-    protected LifecycleToolCallAdvisor(ToolCallingManager toolCallingManager, ThreadPoolExecutor threadPoolExecutor, MemoryRepository memoryRepository, ChatHistoryRepository chatHistoryRepository) {
+    protected LifecycleToolCallAdvisor(
+            ToolCallingManager toolCallingManager,
+            HookRegistry hookRegistry,
+            ThreadPoolExecutor threadPoolExecutor) {
         super(toolCallingManager, ORDER, true);
-        this.memoryRepository = memoryRepository;
+        this.hookRegistry = hookRegistry;
         this.threadPoolExecutor = threadPoolExecutor;
-        this.chatHistoryRepository = chatHistoryRepository;
     }
+
+    // ==================== Session Lifecycle ====================
 
     @Override
     protected ChatClientRequest doInitializeLoop(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
-        // 保存用户消息
-        String conversationId = (String) chatClientRequest.context().get(ChatMemory.CONVERSATION_ID);
-        String userId = (String) chatClientRequest.context().get(AdvisorContextConstants.USER_ID);
-        memoryRepository.saveAll(conversationId, userId, List.of(chatClientRequest.prompt().getUserMessage()));
-        chatHistoryRepository.saveUserMessage(conversationId, null, chatClientRequest.prompt().getUserMessage().getText());
+        // Hook: SessionStart
+        hookRegistry.onSessionStart(chatClientRequest);
+
         return super.doInitializeLoop(chatClientRequest, callAdvisorChain);
-    }
-
-    // ==========================================
-    // 1. 同步拦截：在 do-while 循环外层建立通信
-    // ==========================================
-    @Override
-    public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
-
-        // 调用父类，让 Spring AI 去跑那个恶心的 do-while 循环
-        ChatClientResponse response = super.adviseCall(request, chain);
-
-        // 循环彻底结束后，直接从信使里拿数据！绝对能拿到！
-        request.context().put(AdvisorContextConstants.TOOL_CALL_PHASE, AdvisorContextConstants.Phase.COMPLETED);
-        storeAssistantMessage(response, request.context());
-
-        return response;
     }
 
     @Override
     protected ChatClientRequest doInitializeLoopStream(ChatClientRequest chatClientRequest, StreamAdvisorChain streamAdvisorChain) {
-        String conversationId = (String) chatClientRequest.context().get(ChatMemory.CONVERSATION_ID);
-        String userId = (String) chatClientRequest.context().get(AdvisorContextConstants.USER_ID);
-        chatHistoryRepository.saveUserMessage(conversationId, null, chatClientRequest.prompt().getUserMessage().getText());
-        memoryRepository.saveAll(conversationId, userId, List.of(chatClientRequest.prompt().getUserMessage()));
+        // Hook: SessionStart
+        hookRegistry.onSessionStart(chatClientRequest);
+
         return super.doInitializeLoopStream(chatClientRequest, streamAdvisorChain);
     }
 
-    // ==========================================
-    // 2. 异步拦截：流式模式的处理
-    // ==========================================
+    // ==================== PreToolUse ====================
 
+    @Override
+    protected ChatClientRequest doBeforeCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
+        // 执行 PreToolUse Hook 链
+        ChatClientRequest modified = hookRegistry.doPreToolUse(chatClientRequest);
+        if (modified == null) {
+            // Hook 取消，返回原始请求
+            log.warn("PreToolUse Hook 取消了请求");
+            return chatClientRequest;
+        }
+        return super.doBeforeCall(modified, callAdvisorChain);
+    }
+
+    // ==================== PostToolUse ====================
+
+    @Override
+    protected ChatClientResponse doAfterCall(ChatClientResponse chatClientResponse, CallAdvisorChain callAdvisorChain) {
+        // 执行 PostToolUse Hook 链
+        ChatClientResponse modified = hookRegistry.doPostToolUse(chatClientResponse);
+        return super.doAfterCall(modified, callAdvisorChain);
+    }
+
+    // ==================== Compression (关键点) ====================
+
+    @Override
+    protected List<Message> doGetNextInstructionsForToolCall(
+            ChatClientRequest chatClientRequest,
+            ChatClientResponse chatClientResponse,
+            ToolExecutionResult toolExecutionResult) {
+
+        // 1. 执行压缩 Hook
+        List<Message> messages = hookRegistry.doCompression(
+                chatClientRequest,
+                chatClientResponse,
+                toolExecutionResult
+        );
+
+        // 2. 如果压缩 Hook 返回了消息，使用压缩后的消息
+        if (messages != null && !messages.isEmpty()) {
+            log.debug("CompressionHook 返回 {} 条消息", messages.size());
+        } else {
+            // 使用默认逻辑
+            messages = super.doGetNextInstructionsForToolCall(
+                    chatClientRequest,
+                    chatClientResponse,
+                    toolExecutionResult
+            );
+        }
+
+        return messages;
+    }
+
+    @Override
+    protected List<Message> doGetNextInstructionsForToolCallStream(
+            ChatClientRequest chatClientRequest,
+            ChatClientResponse chatClientResponse,
+            ToolExecutionResult toolExecutionResult) {
+
+        // 执行压缩 Hook
+        List<Message> messages = hookRegistry.doCompression(
+                chatClientRequest,
+                chatClientResponse,
+                toolExecutionResult
+        );
+
+        if (messages == null || messages.isEmpty()) {
+            messages = super.doGetNextInstructionsForToolCallStream(
+                    chatClientRequest,
+                    chatClientResponse,
+                    toolExecutionResult
+            );
+        }
+
+        return messages;
+    }
+
+    // ==================== StopHook ====================
+
+    @Override
+    protected ChatClientResponse doFinalizeLoop(ChatClientResponse chatClientResponse, CallAdvisorChain callAdvisorChain) {
+        // Hook: StopHook
+        hookRegistry.doStopHook(chatClientResponse);
+
+        // Hook: SessionEnd
+        hookRegistry.onSessionEnd(chatClientResponse);
+
+        return super.doFinalizeLoop(chatClientResponse, callAdvisorChain);
+    }
+
+    @Override
+    protected Flux<ChatClientResponse> doFinalizeLoopStream(
+            Flux<ChatClientResponse> flux,
+            StreamAdvisorChain streamAdvisorChain) {
+        // 注意：流式模式的 finalize 需要特殊处理
+        return super.doFinalizeLoopStream(flux, streamAdvisorChain);
+    }
+
+    // ==================== 同步调用入口 ====================
+
+    @Override
+    public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
+        ChatClientResponse response = super.adviseCall(request, chain);
+        request.context().put(AdvisorContextConstants.TOOL_CALL_PHASE, AdvisorContextConstants.Phase.COMPLETED);
+        storeAssistantMessage(response, request.context());
+        return response;
+    }
+
+    // ==================== 流式调用入口 ====================
 
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest request, StreamAdvisorChain chain) {
@@ -94,67 +196,18 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
             return Flux.empty();
         }
 
-        // 使用 ChatClientMessageAggregator 聚合流，在流结束后再执行存储逻辑
-        // 这样 completeResponse 包含完整聚合后的响应
         return aggregator.aggregateChatClientResponse(flux, completeResponse -> {
             request.context().put(AdvisorContextConstants.TOOL_CALL_PHASE, AdvisorContextConstants.Phase.COMPLETED);
             storeAssistantMessage(completeResponse, request.context());
         });
     }
 
-    // ==========================================
-    // 3. 循环内部：把数据装进信使（Call 模式）
-    // ==========================================
-    @Override
-    @SuppressWarnings("unchecked")
-    protected List<Message> doGetNextInstructionsForToolCall(ChatClientRequest request,
-                                                             ChatClientResponse response,
-                                                             ToolExecutionResult result) {
-        List<Message> messages = super.doGetNextInstructionsForToolCall(request, response, result);
-
-        saveToolExecutionHistory(request, result);
-
-        return messages;
-    }
-
-    // ==========================================
-    // 4. 循环内部：把数据装进信使（Stream 模式）
-    // ==========================================
-    @Override
-    @SuppressWarnings("unchecked")
-    protected List<Message> doGetNextInstructionsForToolCallStream(ChatClientRequest request,
-                                                                   ChatClientResponse response,
-                                                                   ToolExecutionResult result) {
-        List<Message> messages = super.doGetNextInstructionsForToolCallStream(request, response, result);
-
-        saveToolExecutionHistory(request, result);
-
-        return messages;
-    }
-
-    private void saveToolExecutionHistory(ChatClientRequest request, ToolExecutionResult result) {
-        Object sessionIdObj = request.context().get(AdvisorContextConstants.SESSION_ID);
-        Object userIdObj = request.context().get(AdvisorContextConstants.USER_ID);
-
-        // 安全获取变量，防止空指针
-        String sessionId = sessionIdObj != null ? sessionIdObj.toString() : null;
-        String userId = userIdObj != null ? userIdObj.toString() : null;
-
-        var history = result.conversationHistory();
-        int size = history.size();
-
-        if (sessionId != null && size >= 2) {
-            // 截取最后两条并映射转换 (通常是一条 Assistant 的 ToolCall，一条 ToolResultMessage)
-            List<Message> toolMessage = history.subList(size - 2, size);
-            memoryRepository.saveAll(sessionId, userId, toolMessage);
-        }
-    }
+    // ==================== 消息存储 ====================
 
     private void storeAssistantMessage(ChatClientResponse response, Map<String, Object> context) {
         if (response == null || response.chatResponse() == null) return;
 
         try {
-            // 校验是否正常结束
             if (response.chatResponse().getResults().isEmpty()) {
                 log.debug("[storeAssistantMessage] 结果为空，跳过保存");
                 return;
@@ -173,20 +226,19 @@ public class LifecycleToolCallAdvisor extends ToolCallAdvisor {
                 return;
             }
 
-            String conversationId = context.get(ChatMemory.CONVERSATION_ID).toString();
-            String userId = context.get(AdvisorContextConstants.USER_ID).toString();
-            log.info("[保存大模型输出内容] conversationId={}, userId={}, textLength={}", conversationId, userId, text.length());
-            this.threadPoolExecutor.execute(() -> {
-                try {
-                    chatHistoryRepository.saveAssistantMessage(conversationId, null, userId, text);
-                    memoryRepository.save(conversationId, userId, assistantMessage);
-                } catch (Exception e) {
-                    log.error("数据库写入失败", e);
-                }
-            });
+            log.info("[storeAssistantMessage] 助手消息处理完成 textLength={}", text.length());
         } catch (Exception e) {
             log.error("解析工具调用历史发生异常", e);
         }
     }
 
+    @Override
+    protected ChatClientRequest doBeforeStream(ChatClientRequest chatClientRequest, StreamAdvisorChain streamAdvisorChain) {
+        return super.doBeforeStream(chatClientRequest, streamAdvisorChain);
+    }
+
+    @Override
+    protected ChatClientResponse doAfterStream(ChatClientResponse chatClientResponse, StreamAdvisorChain streamAdvisorChain) {
+        return super.doAfterStream(chatClientResponse, streamAdvisorChain);
+    }
 }

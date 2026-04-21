@@ -43,6 +43,35 @@ public class ToolsManager implements BeanPostProcessor {
         return allToolCallbacks;
     }
 
+    /**
+     * 根据工具名称获取 AgentTool 实例
+     */
+    public AgentTool getTool(String name) {
+        if (name == null) return null;
+        try {
+            var toolCallbacks = getToolCallbacks();
+            for (ToolCallback callback : toolCallbacks) {
+                if (callback.getToolDefinition().name().equalsIgnoreCase(name)) {
+                    // 通过回调找到对应的 bean
+                    Object tool = callback.getToolDefinition();
+                    // 尝试从 beanFactory 获取 bean
+                    String[] beanNames = beanFactory.getBeanNamesForType(AgentTool.class);
+                    for (String beanName : beanNames) {
+                        Object bean = beanFactory.getBean(beanName);
+                        if (bean instanceof AgentTool agentTool) {
+                            if (agentTool.getName().equalsIgnoreCase(name)) {
+                                return agentTool;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("查找工具 {} 失败: {}", name, e.getMessage());
+        }
+        return null;
+    }
+
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         // 1. 处理 @Bean("Write") 形式定义的 Function 工具

@@ -42,7 +42,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
         'prose prose-slate dark:prose-invert max-w-none',
         'prose-headings:font-semibold prose-headings:text-gray-900 dark:prose-headings:text-gray-100',
         'prose-p:text-gray-700 dark:prose-p:text-gray-300',
-        'prose-a:text-purple-600 dark:prose-a:text-purple-400',
+        'prose-a:text-blue-600 dark:prose-a:text-blue-400',
         'prose-code:text-sm prose-code:bg-gray-100 dark:prose-code:bg-gray-800',
         'prose-pre:bg-gray-900 dark:prose-pre:bg-gray-800',
         'prose-ul:list-disc prose-ol:list-decimal',
@@ -57,7 +57,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
           if (isInline) {
             return (
               <code
-                className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-purple-600 dark:text-purple-400 font-mono text-sm"
+                className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-blue-600 dark:text-blue-400 font-mono text-sm"
                 {...props}
               >
                 {children}
@@ -106,7 +106,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
         },
         blockquote({ children }) {
           return (
-            <blockquote className="border-l-4 border-purple-500 pl-4 italic text-gray-600 dark:text-gray-400 my-4">
+            <blockquote className="border-l-4 border-blue-500 pl-4 italic text-gray-600 dark:text-gray-400 my-4">
               {children}
             </blockquote>
           );
@@ -117,7 +117,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-purple-600 dark:text-purple-400 hover:underline"
+              className="text-blue-600 dark:text-blue-400 hover:underline"
             >
               {children}
             </a>
@@ -158,7 +158,7 @@ export function StreamingMarkdown({ content, onStreamEnd, className }: Streaming
       {content.length > 0 && (
         <span
           ref={contentRef}
-          className="inline-block w-0.5 h-5 bg-purple-500 ml-1 animate-pulse align-text-bottom"
+          className="inline-block w-0.5 h-5 bg-blue-500 ml-1 animate-pulse align-text-bottom"
         />
       )}
     </div>
