@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import top.javarem.omni.tool.AgentTool;
 
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -38,6 +39,15 @@ public class AgentToolConfig implements AgentTool {
     private final ExecutorService executor;
 
     private static final long DEFAULT_TIMEOUT_MS = 180000; // 3分钟
+
+    // 按 AgentType 分类的默认超时配置
+    private static final Map<String, Long> AGENT_TYPE_TIMEOUTS = Map.of(
+            "verification", 600000L,  // 10分钟 - 复杂验收测试任务
+            "general", 300000L,       // 5分钟 - 通用任务
+            "explore", 180000L,       // 3分钟 - 快速探索
+            "plan", 180000L,          // 3分钟 - 计划制定
+            "code-reviewer", 300000L  // 5分钟 - 代码审查
+    );
 
     public AgentToolConfig(
             AgentTaskRegistry registry,
@@ -158,7 +168,7 @@ public class AgentToolConfig implements AgentTool {
                     "请使用 agentOutput 工具查询结果：\n" +
                     "agentOutput(taskId=\"" + taskId + "\", block=false)\n\n" +
                     "或直接阻塞等待其完成：\n" +
-                    "agentOutput(taskId=\"" + taskId + "\", block=true, timeout=180000)";
+                    "agentOutput(taskId=\"" + taskId + "\", block=true, timeout=" + getDefaultTimeout(type.getValue()) + ")";
         }
     }
 
@@ -184,7 +194,7 @@ public class AgentToolConfig implements AgentTool {
         }
 
         boolean shouldBlock = block != null && block;
-        long waitTimeout = timeout != null ? timeout : DEFAULT_TIMEOUT_MS;
+        long waitTimeout = resolveTimeout(timeout, record.agentType());
 
         try {
             if (shouldBlock) {
@@ -239,6 +249,23 @@ public class AgentToolConfig implements AgentTool {
                 "status: running\n" +
                 "elapsed: " + elapsedStr + "\n\n" +
                 "提示：使用 agentOutput(taskId=\"" + taskId + "\", block=true) 可阻塞等待任务结束";
+    }
+
+    /**
+     * 获取指定 AgentType 的默认超时时间
+     */
+    private long getDefaultTimeout(String agentType) {
+        return AGENT_TYPE_TIMEOUTS.getOrDefault(agentType, DEFAULT_TIMEOUT_MS);
+    }
+
+    /**
+     * 解析超时配置：优先使用传入的超时，否则使用类型特定的默认值
+     */
+    private long resolveTimeout(Long requestedTimeout, String agentType) {
+        if (requestedTimeout != null && requestedTimeout > 0) {
+            return requestedTimeout;
+        }
+        return getDefaultTimeout(agentType);
     }
 
     private String formatResult(AgentResult result) {
