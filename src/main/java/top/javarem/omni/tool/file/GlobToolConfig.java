@@ -23,7 +23,7 @@ public class GlobToolConfig implements AgentTool {
 
     @Override
     public String getName() {
-        return "glob";
+        return "Glob";
     }
 
     private static final String DEFAULT_PATH = ".";
@@ -49,7 +49,7 @@ public class GlobToolConfig implements AgentTool {
      * @param context ToolContext，用于获取动态 workspace
      * @return 匹配的文件路径列表
      */
-    @Tool(name = "glob", description = """
+    @Tool(name = "Glob", description = """
             适用于任何代码库大小的快速文件模式匹配工具
             -支持glob模式，如“**/*.js”或“src/**/*.ts”
             -返回按修改时间排序的匹配文件路径

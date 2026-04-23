@@ -35,7 +35,7 @@ public class RagToolConfig implements AgentTool {
 
     @Override
     public String getName() {
-        return "semantic_search";
+        return "SemanticSearch";
     }
 
     @Override
@@ -73,7 +73,7 @@ public class RagToolConfig implements AgentTool {
      * 使用语义相似度在知识库中搜索答案。
      * 关键指令：对于用户的任何事实性提问，必须首先且强制调用此工具。
      */
-    @Tool(name = "semantic_search", description = """
+    @Tool(name = "SemanticSearch", description = """
              【核心功能】
              利用向量语义检索技术在知识库中查找相关文档片段。
             
@@ -125,7 +125,7 @@ public class RagToolConfig implements AgentTool {
      * 精准读取指定文件的连续文本段落。
      * 适用场景：当语义搜索提供的信息不够完整，需要通读某份文件的特定章节时使用。
      */
-    @Tool(name = "read_chunks", description = """
+    @Tool(name = "ReadChunks", description = """
         精准读取指定文件的连续或离散文本段落。
         适用场景：当语义搜索信息不全，需要补全上下文或通读特定章节时使用。
         可以直接传入包含 fileId 和 chunkIndex 的对象列表。
@@ -206,11 +206,11 @@ public class RagToolConfig implements AgentTool {
     // ==================== 工具三：知识库文件列表 ====================
 
     /**
-     * ListKnowledgeBaseFilesTool - 知识库大纲盘点工具
+     * ListKnowledgeBaseFilesTool - 知识库文件列表工具
      *
      * 获取元数据。
      */
-    @Tool(name = "get_file_metadata", description = """
+    @Tool(name = "GetFileMetadata", description = """
             获取当前知识库的文件目录和元数据。
             适用场景：
             1. 需要确认知识库中是否包含某一类文件时。
@@ -267,7 +267,7 @@ public class RagToolConfig implements AgentTool {
      *
      * 列出知识库中的文件列表。
      */
-    @Tool(name = "list_files", description = """
+    @Tool(name = "ListFiles", description = """
         列出当前知识库中的所有文件。返回每个文件的文件ID、文件名和块数等信息。
         """)
     public String listFiles(

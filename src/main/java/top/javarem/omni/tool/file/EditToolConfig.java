@@ -25,7 +25,7 @@ public class EditToolConfig implements AgentTool {
 
     @Override
     public String getName() {
-        return "edit";
+        return "Edit";
     }
 
     @Override
@@ -51,7 +51,7 @@ public class EditToolConfig implements AgentTool {
      * @param context   ToolContext，用于获取动态 workspace
      * @return 编辑结果
      */
-    @Tool(name = "edit", description = """
+    @Tool(name = "Edit", description = """
             在文件中执行精确的字符串替换。
             
             用法：

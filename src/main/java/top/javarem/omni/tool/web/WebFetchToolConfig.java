@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
  * WebFetch 网页内容萃取工具
  * 深入阅读网络搜索返回的特定链接，提取核心正文转为 Markdown 格式
  *
- * 对标 Claude Code WebFetchTool 实现，核心能力：
+ * 核心能力：
  * - Jsoup HTML 解析，健壮的 DOM → Markdown 转换
  * - LRU 缓存（15min TTL，50MB 上限）
  * - 受控重定向（仅同域重定向，防止开放重定向攻击）
@@ -42,7 +42,7 @@ public class WebFetchToolConfig implements AgentTool {
 
     @Override
     public String getName() {
-        return "web_fetch";
+        return "WebFetch";
     }
 
     // ============================================================
@@ -92,10 +92,10 @@ public class WebFetchToolConfig implements AgentTool {
     // 工具入口
     // ============================================================
 
-    @Tool(name = "web_fetch", description = "获取网页正文。适用：深入阅读搜索结果链接。返回：Markdown格式")
+    @Tool(name = "WebFetch", description = "获取网页正文。适用：深入阅读搜索结果链接。返回：Markdown格式")
     public String webFetch(
             @ToolParam(description = "网页URL。必须 https:// 或 http:// 开头") String url) {
-        log.info("[web_fetch] 开始执行: url={}", url);
+        log.info("[WebFetch] 开始执行: url={}", url);
 
         // 1. 参数归一化
         String normalizedUrl = normalizeAndValidateUrl(url);
@@ -107,7 +107,7 @@ public class WebFetchToolConfig implements AgentTool {
         // 2. 检查缓存
         CacheEntry cached = urlCache.get(normalizedUrl);
         if (cached != null && !cached.isExpired()) {
-            log.info("[web_fetch] 缓存命中: url={}, size={}", normalizedUrl, cached.markdown.length());
+            log.info("[WebFetch] 缓存命中: url={}, size={}", normalizedUrl, cached.markdown.length());
             return buildSuccessResponse(normalizedUrl, cached.markdown, cached.contentType);
         }
 
@@ -122,7 +122,7 @@ public class WebFetchToolConfig implements AgentTool {
             return buildRedirectResponse(result);
         }
         if (result.error != null) {
-            log.error("[web_fetch] 失败: url={}, error={}", normalizedUrl, result.error);
+            log.error("[WebFetch] 失败: url={}, error={}", normalizedUrl, result.error);
             return buildErrorResponse("网页获取失败: " + result.error,
                     "请检查 URL 是否正确，以及网络是否可用");
         }
@@ -134,7 +134,7 @@ public class WebFetchToolConfig implements AgentTool {
         // 6. 缓存结果
         cachePut(normalizedUrl, markdown, contentType);
 
-        log.info("[web_fetch] 完成: url={}, contentLength={}", normalizedUrl, markdown.length());
+        log.info("[WebFetch] 完成: url={}, contentLength={}", normalizedUrl, markdown.length());
         return buildSuccessResponse(normalizedUrl, markdown, contentType);
     }
 

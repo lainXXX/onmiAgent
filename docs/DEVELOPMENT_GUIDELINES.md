@@ -322,12 +322,18 @@ assertNotNull(task, "查询结果不应为空");
 ```
 <type>(<scope>): <subject>
 
-feat(advisor): add TaskProgressAdvisor for round tracking
-fix(repository): correct SQL syntax in countActiveTasks
-refactor(tool): simplify task update validation
+feat(advisor): 添加任务进度追踪功能
+fix(repository): 修正统计 SQL 语法错误
+refactor(tool): 简化任务更新验证逻辑
 ```
 
-### 7.2 Type 类型
+### 7.2 强制要求：必须使用中文
+
+**所有提交信息必须使用中文撰写**，包括：
+- Subject（主题）：简洁描述，不超过 72 字符
+- Body（正文，可选）：详细说明变更原因、影响范围等
+
+### 7.3 Type 类型
 
 | Type | 含义 |
 |------|------|
@@ -337,6 +343,8 @@ refactor(tool): simplify task update validation
 | `style` | 格式化、代码风格 |
 | `test` | 测试相关 |
 | `docs` | 文档 |
+| `chore` | 杂务（依赖更新、构建配置等） |
+| `perf` | 性能优化 |
 
 ---
 

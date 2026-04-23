@@ -29,7 +29,7 @@ public class GrepToolConfig implements AgentTool {
 
     @Override
     public String getName() {
-        return "grep";
+        return "Grep";
     }
 
     private static final String DEFAULT_PATH = ".";
@@ -57,7 +57,7 @@ public class GrepToolConfig implements AgentTool {
      * @param context ToolContext，用于获取动态 workspace
      * @return 搜索结果列表
      */
-    @Tool(name = "grep", description = """
+    @Tool(name = "Grep", description = """
             基于ripgrep构建的强大搜索工具
             
             用法：

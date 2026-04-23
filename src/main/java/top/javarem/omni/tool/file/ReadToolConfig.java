@@ -32,7 +32,7 @@ public class ReadToolConfig implements AgentTool {
 
     @Override
     public String getName() {
-        return "read";
+        return "Read";
     }
 
     private static final int DEFAULT_START_LINE = 1;
@@ -56,7 +56,7 @@ public class ReadToolConfig implements AgentTool {
      * @param context   ToolContext，用于获取动态 workspace
      * @return 文件内容
      */
-    @Tool(name = "read", description = """
+    @Tool(name = "Read", description = """
             从本地文件系统读取文件。您可以使用此工具直接访问任何文件。
             假设此工具能够读取机器上的所有文件。如果用户提供了文件的路径，则假定该路径有效。读取不存在的文件是可以的；将返回错误。
             

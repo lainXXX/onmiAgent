@@ -34,7 +34,7 @@ public class TaskToolConfig implements AgentTool {
         return "Task";
     }
 
-    private static final long DEFAULT_TIMEOUT_MS = 30_000;
+    private static final long DEFAULT_TIMEOUT_MS = 30000;
     private static final Set<String> VALID_STATUSES = Set.of("pending", "in_progress", "completed");
 
     private final TaskService taskService;

@@ -23,7 +23,7 @@ public class WriteToolConfig implements AgentTool {
 
     @Override
     public String getName() {
-        return "write";
+        return "Write";
     }
 
     @Override
@@ -41,7 +41,7 @@ public class WriteToolConfig implements AgentTool {
      * @param context  ToolContext，用于获取动态 workspace
      * @return 写入结果
      */
-    @Tool(name = "write", description = """
+    @Tool(name = "Write", description = """
             将文件写入本地文件系统。
             
             用法：

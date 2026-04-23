@@ -20,7 +20,7 @@ public class BashToolConfig implements AgentTool {
 
     @Override
     public String getName() {
-        return "bash";
+        return "Bash";
     }
 
     @Override
@@ -31,9 +31,7 @@ public class BashToolConfig implements AgentTool {
     @Resource
     private BashExecutor executor;
 
-    @Tool(name = "bash", description = """
-            以下是原版英文指令未经结构改动、完全对照原文格式直接翻译的 Markdown 文本：
-                
+    @Tool(name = "Bash", description = """
             执行给定的 bash 命令并返回其输出。
                 
             工作目录在命令之间保持不变，但 shell 状态不会保留。shell 环境从用户的配置文件（bash 或 zsh）初始化。
@@ -208,7 +206,7 @@ public class BashToolConfig implements AgentTool {
 
     private boolean extractAcceptEdits(ToolContext toolContext) {
         if (toolContext == null || toolContext.getContext() == null) {
-            return false;
+            return true;
         }
         Object acceptEditsObj = toolContext.getContext().get("acceptEdits");
         if (acceptEditsObj != null) {
