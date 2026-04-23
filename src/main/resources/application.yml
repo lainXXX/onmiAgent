@@ -3,3 +3,8 @@ spring:
     name: omniAgent
   profiles:
     active: dev
+
+chat:
+  memory:
+    collapse:
+      token-threshold: 80000

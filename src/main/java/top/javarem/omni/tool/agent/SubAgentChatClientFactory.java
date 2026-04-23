@@ -5,25 +5,28 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.util.CollectionUtils;
 import top.javarem.omni.loader.SkillLoader;
 import top.javarem.omni.tool.ToolsManager;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 子 Agent ChatClient 工厂
- * 根据 Agent 类型创建专用的 ChatClient 实例，支持工具过滤、One-Shot 和进度追踪
+ * 支持 Worktree 沙盒隔离，并实现了完整的 ReAct (思考-行动) 循环，完美处理 Tool Calls。
  */
 @Slf4j
 @Component
@@ -54,16 +57,10 @@ public class SubAgentChatClientFactory {
         this.skillLoader = skillLoader;
     }
 
-    /**
-     * 执行子 Agent 任务
-     */
     public AgentResult execute(String taskId, AgentType type, String prompt, String conversationId, String userId) {
         return execute(taskId, type, prompt, conversationId, userId, null, null);
     }
 
-    /**
-     * 执行子 Agent 任务（带 resume 和 worktree 支持）
-     */
     public AgentResult execute(String taskId, AgentType type, String prompt, String conversationId, String userId,
                                String resumeFromTaskId, Path worktreePath) {
         long startTime = System.currentTimeMillis();
@@ -76,17 +73,23 @@ public class SubAgentChatClientFactory {
 
             List<Message> messages;
             if (resumeFromTaskId != null && sessionManager.sessionExists(resumeFromTaskId)) {
-                messages = sessionManager.buildResumePrompt(resumeFromTaskId, prompt);
-                log.info("[SubAgentFactory] Resume会话: from={}, messages={}", resumeFromTaskId, messages.size());
+                messages = new ArrayList<>(sessionManager.buildResumePrompt(resumeFromTaskId, prompt));
             } else {
                 sessionManager.createSession(taskId, type.getValue(), prompt);
-                messages = new ArrayList<>(List.of(
-                        new SystemMessage(systemPrompt),
-                        new UserMessage(prompt)
-                ));
+                messages = new ArrayList<>();
+                messages.add(new SystemMessage(systemPrompt));
+                messages.add(new UserMessage(prompt));
             }
 
-            String finalOutput = executeLoop(taskId, type, messages, userId);
+            Map<String, Object> toolContext = new HashMap<>();
+            toolContext.put("userId", userId);
+            toolContext.put("taskId", taskId);
+            toolContext.put("agentType", type.getValue());
+            if (worktreePath != null) {
+                toolContext.put("worktreePath", worktreePath.toAbsolutePath().toString());
+            }
+
+            String finalOutput = executeLoop(taskId, type, messages, toolContext);
 
             long duration = System.currentTimeMillis() - startTime;
             log.info("[SubAgentFactory] 子Agent完成: taskId={}, duration={}ms", taskId, duration);
@@ -101,134 +104,168 @@ public class SubAgentChatClientFactory {
     }
 
     /**
-     * 执行对话循环（支持工具过滤和 One-Shot）
+     * 核心 ReAct 循环 (参考 Spring AI 底层 ToolCalling 逻辑设计)
      */
-    private String executeLoop(String taskId, AgentType type, List<Message> messages, String userId) {
-        // One-Shot 模式：直接单轮返回
+    private String executeLoop(String taskId, AgentType type, List<Message> messages, Map<String, Object> toolContext) {
         if (type.isOneShot()) {
-            log.info("[SubAgentFactory] One-Shot模式: taskId={}, type={}", taskId, type.getValue());
-            return executeOneShot(taskId, type, messages, userId);
+            return executeOneShot(taskId, type, messages, toolContext);
         }
 
         int iterations = 0;
-        String lastOutput = null;
+        String lastOutputText = null;
 
         List<ToolCallback> filteredCallbacks = getFilteredToolCallbacks(type);
-        log.info("[SubAgentFactory] 工具过滤: type={}, 可用工具数={}", type.getValue(), filteredCallbacks.size());
 
+        // 如果底层模型不支持自动 Tool 执行，或者需要由外部循环接管，我们在这里注入工具定义
         ChatClient client = ChatClient.builder(chatModel)
-                .defaultTools(new StaticToolCallbackResolver(filteredCallbacks))
+                .defaultTools(filteredCallbacks)
                 .build();
 
         while (iterations < maxIterations) {
             iterations++;
-            log.debug("[SubAgentFactory] 对话迭代: taskId={}, iteration={}", taskId, iterations);
+            log.debug("[SubAgentFactory] 进入 ReAct 迭代: taskId={}, iteration={}", taskId, iterations);
 
             try {
-                List<Message> currentMessages = new ArrayList<>(messages);
-                Map<String, Object> toolContext = Map.of(
-                        "userId", userId,
-                        "taskId", taskId,
-                        "agentType", type.getValue()
-                );
-
-                String content = client.prompt()
-                        .messages(currentMessages)
+                ChatResponse response = client.prompt()
+                        .messages(new ArrayList<>(messages))
                         .toolContext(toolContext)
                         .call()
-                        .content();
+                        .chatResponse();
 
-                if (content == null || content.isBlank()) {
-                    lastOutput = extractLastAssistantOutput(messages);
+                if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+                    lastOutputText = extractLastAssistantText(messages);
                     break;
                 }
 
-                AssistantMessage assistantMessage = new AssistantMessage(content);
+                // 1. 获取模型生成的包含内容的 AssistantMessage (可能包含 Text，也可能包含 ToolCalls)
+                AssistantMessage assistantMessage = response.getResult().getOutput();
                 messages.add(assistantMessage);
-                sessionManager.addAssistantMessage(taskId, content);
 
-                if (isTerminalOutput(content)) {
-                    lastOutput = content;
-                    break;
+                // =================================================================================
+                // 2. 核心优化：ReAct 循环中的 Action 阶段 (处理 ToolCalls)
+                // =================================================================================
+                if (!CollectionUtils.isEmpty(assistantMessage.getToolCalls())) {
+                    List<String> requestedTools = assistantMessage.getToolCalls().stream()
+                            .map(AssistantMessage.ToolCall::name).toList();
+                    log.info("[SubAgentFactory] 模型请求执行工具: taskId={}, tools={}", taskId, requestedTools);
+
+                    List<ToolResponseMessage.ToolResponse> toolResponses = new ArrayList<>();
+
+                    // 遍历执行所有被请求的工具
+                    for (AssistantMessage.ToolCall toolCall : assistantMessage.getToolCalls()) {
+                        String toolName = toolCall.name();
+                        String arguments = toolCall.arguments();
+                        String toolResult;
+
+                        try {
+                            ToolCallback callback = filteredCallbacks.stream()
+                                    .filter(cb -> cb.getToolDefinition().name().equals(toolName))
+                                    .findFirst()
+                                    .orElseThrow(() -> new IllegalStateException("模型调用了未授权或不存在的工具: " + toolName));
+
+                            // 执行工具（模拟底层 executeToolCalls 行为）
+                            log.debug("[SubAgentFactory] 执行工具 {} 参数 {}", toolName, arguments);
+                            toolResult = callback.call(arguments);
+                        } catch (Exception e) {
+                            log.error("[SubAgentFactory] 工具执行异常: {}", toolName, e);
+                            toolResult = "Error executing tool: " + e.getMessage();
+                        }
+
+                        toolResponses.add(new ToolResponseMessage.ToolResponse(toolCall.id(), toolName, toolResult));
+                    }
+
+                    // 将执行结果包装为 ToolResponseMessage 并放入上下文中
+                    ToolResponseMessage toolResponseMessage = ToolResponseMessage.builder().responses(toolResponses).build();
+                    messages.add(toolResponseMessage);
+
+                    // 记录会话状态，方便审计和 Resume
+                    sessionManager.addAssistantMessage(taskId, "【工具执行完毕】" + requestedTools);
+
+                    // 继续下一轮循环，将工具执行结果交还给模型进行下一轮 Reasoning
+                    continue;
                 }
 
-                lastOutput = content;
+                // =================================================================================
+                // 3. 处理常规文本输出 (Reasoning 阶段)
+                // =================================================================================
+                String contentText = assistantMessage.getText();
+                if (contentText != null && !contentText.isBlank()) {
+                    sessionManager.addAssistantMessage(taskId, contentText);
+                    lastOutputText = contentText;
+                }
+
+                if (isTerminalOutput(contentText)) {
+                    log.info("[SubAgentFactory] 命中任务完成标识: taskId={}, iteration={}", taskId, iterations);
+                    break;
+                }
 
             } catch (Exception e) {
-                log.error("[SubAgentFactory] 迭代异常: taskId={}, iteration={}, error={}",
-                        taskId, iterations, e.getMessage());
-                lastOutput = "执行过程中出错: " + e.getMessage();
+                log.error("[SubAgentFactory] 迭代发生异常: taskId={}, iteration={}", taskId, iterations, e);
+                lastOutputText = "执行过程中出错中断: " + e.getMessage();
                 break;
             }
         }
 
         if (iterations >= maxIterations) {
-            log.warn("[SubAgentFactory] 达到最大迭代次数: taskId={}, max={}", taskId, maxIterations);
-            lastOutput = (lastOutput != null ? lastOutput + "\n\n" : "") +
-                    "[警告: 达到最大迭代次数 " + maxIterations + "，任务被强制终止]";
+            log.warn("[SubAgentFactory] 达到最大迭代次数保护阈值: taskId={}", taskId);
+            lastOutputText = (lastOutputText != null ? lastOutputText + "\n\n" : "") +
+                    "[系统警告: 达到最大循环次数 " + maxIterations + "，已被强制终止]";
         }
 
-        sessionManager.updateLastOutput(taskId, lastOutput);
-        return lastOutput;
+        sessionManager.updateLastOutput(taskId, lastOutputText);
+        return lastOutputText;
     }
 
-    /**
-     * One-Shot 单轮执行（无工具循环）
-     */
-    private String executeOneShot(String taskId, AgentType type, List<Message> messages, String userId) {
+    private String executeOneShot(String taskId, AgentType type, List<Message> messages, Map<String, Object> toolContext) {
         List<ToolCallback> filteredCallbacks = getFilteredToolCallbacks(type);
-        log.info("[SubAgentFactory] One-Shot工具过滤: type={}, 可用工具数={}", type.getValue(), filteredCallbacks.size());
 
         ChatClient client = ChatClient.builder(chatModel)
                 .defaultTools(new StaticToolCallbackResolver(filteredCallbacks))
                 .build();
 
-        Map<String, Object> toolContext = Map.of(
-                "userId", userId,
-                "taskId", taskId,
-                "agentType", type.getValue()
-        );
-
         try {
-            String content = client.prompt()
+            ChatResponse response = client.prompt()
                     .messages(new ArrayList<>(messages))
                     .toolContext(toolContext)
                     .call()
-                    .content();
+                    .chatResponse();
 
-            if (content == null || content.isBlank()) {
-                return extractLastAssistantOutput(messages);
+            if (response == null || response.getResult() == null) {
+                return extractLastAssistantText(messages);
             }
 
-            sessionManager.addAssistantMessage(taskId, content);
-            sessionManager.updateLastOutput(taskId, content);
-            return content;
+            String content = response.getResult().getOutput().getText();
+            if (content != null && !content.isBlank()) {
+                sessionManager.addAssistantMessage(taskId, content);
+                sessionManager.updateLastOutput(taskId, content);
+                return content;
+            } else {
+                return extractLastAssistantText(messages);
+            }
 
         } catch (Exception e) {
-            log.error("[SubAgentFactory] One-Shot执行异常: taskId={}, error={}", taskId, e.getMessage());
+            log.error("[SubAgentFactory] One-Shot执行异常", e);
             return "执行出错: " + e.getMessage();
         }
     }
 
-    /**
-     * 根据 AgentType 过滤可用的 ToolCallback
-     */
     private List<ToolCallback> getFilteredToolCallbacks(AgentType type) {
         return toolsManager.getToolCallbacks().stream()
                 .filter(cb -> type.isToolAllowed(cb.getToolDefinition().name()))
                 .toList();
     }
 
-    private String extractLastAssistantOutput(List<Message> messages) {
+    private String extractLastAssistantText(List<Message> messages) {
         return messages.stream()
                 .filter(m -> m instanceof AssistantMessage)
                 .reduce((first, second) -> second)
                 .map(m -> ((AssistantMessage) m).getText())
-                .orElse("Agent completed without output");
+                .orElse("Agent 执行结束，但未产生有效文本输出");
     }
 
     private boolean isTerminalOutput(String text) {
-        if (text == null || text.isBlank()) return true;
+        if (text == null || text.isBlank()) return false;
+
         String lower = text.toLowerCase().trim();
         return lower.endsWith("任务完成") ||
                 lower.endsWith("完成") ||
@@ -238,6 +275,9 @@ public class SubAgentChatClientFactory {
                 lower.contains("final result");
     }
 
+    /**
+     * 动态构建 System Prompt
+     */
     private String buildSystemPrompt(AgentType type, String workDir) {
         String basePrompt = switch (type) {
             case EXPLORE -> """
@@ -372,14 +412,16 @@ public class SubAgentChatClientFactory {
                 - 不编写实际代码
                 - 提供准确的技术文档链接
                 """;
+            default -> AgentType.GENERAL.getDescription();
         };
 
         // Skills 注入（如果 SkillLoader 有内容）
         String skillsSection = skillLoader.getSkillsDescription();
         if (skillsSection != null && !skillsSection.isBlank()) {
-            basePrompt = basePrompt + "\n\n" + skillsSection;
+            basePrompt = basePrompt + "\n\n=== 可用技能 (Skills) ===\n" + skillsSection;
         }
 
-        return basePrompt + "\n\n工作目录: " + workDir;
+        // 强提醒工作区位置
+        return basePrompt + "\n\n=== 环境信息 ===\n当前分配给你的沙盒工作目录是: " + workDir + "\n请确保你所有的文件操作都严格限制在此目录下。";
     }
 }

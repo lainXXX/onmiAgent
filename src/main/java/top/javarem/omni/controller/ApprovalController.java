@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 import top.javarem.omni.tool.bash.ApprovalService;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -59,6 +60,20 @@ public class ApprovalController {
                 : entry.approved() ? "APPROVED" : "REJECTED",
             "createdAt", entry.timestamp()
         );
+    }
+
+    /**
+     * 获取所有待审批的票根（用于前端轮询）
+     */
+    @GetMapping("/pending")
+    public List<Map<String, Object>> getPendingApprovals() {
+        return approvalService.getPendingTicketsWithId().stream()
+                .map(entry -> Map.<String, Object>of(
+                        "ticketId", entry.ticketId(),
+                        "command", entry.entry().normalizedCommand(),
+                        "message", "危险命令待审批"
+                ))
+                .toList();
     }
 
     public record ApprovalRequest(

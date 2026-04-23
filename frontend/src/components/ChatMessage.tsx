@@ -1,104 +1,122 @@
-import { memo, useMemo } from 'react';
+import { memo } from 'react';
 import { Message } from '../types';
 import { MarkdownRenderer } from './MarkdownRenderer';
-import { Lightbulb, ChevronDown } from 'lucide-react';
-import { parseMessageContent, completeCodeBlock } from '../utils/messageParser';
 
 interface ChatMessageProps {
   message: Message;
+  streamingBlockId?: string | null;
+  isStreaming?: boolean;
 }
 
 export const ChatMessage = memo(function ChatMessage({
   message,
+  streamingBlockId,
+  isStreaming,
 }: ChatMessageProps) {
-  const isUser = message.role === 'user';
 
-  const { thinkContent, mainContent, isStreaming } = useMemo(() => {
-    const parsed = parseMessageContent(message.content);
-    // Complete code blocks before rendering
-    const fixedMain = completeCodeBlock(parsed.mainContent);
-    return {
-      thinkContent: parsed.thinkContent,
-      mainContent: fixedMain,
-      isStreaming: parsed.isStreaming,
-    };
-  }, [message.content]);
+  // 如果没有 blocks，只渲染用户消息
+  if (!message.blocks || message.blocks.length === 0) {
+    return (
+      <div className="flex gap-3 md:gap-4 py-4 md:py-6">
+        <div className="w-7 h-7 md:w-8 md:h-8 rounded flex items-center justify-center shrink-0 border text-[10px] font-bold bg-zinc-800 border-zinc-700 text-zinc-100">
+          U
+        </div>
+        <div className="flex-1 min-w-0 pt-1">
+          <div className="text-sm md:text-[15px] text-zinc-100 whitespace-pre-wrap">{message.content}</div>
+        </div>
+      </div>
+    );
+  }
+
+  // 判断文本内容是否包含未完成的思考标签
+  const combinedText = message.blocks
+    .filter(b => b.type === 'text')
+    .map(b => b.content)
+    .join('');
+  const hasIncompleteThink = combinedText.includes('<think>') && !combinedText.includes('</think>');
 
   return (
-    <div
-      className={`flex gap-3 p-4 animate-in slide-in-from-bottom-2 duration-300 ${
-        isUser ? 'bg-purple-50 dark:bg-purple-950/20' : ''
-      }`}
-    >
-      {/* Avatar */}
-      <div
-        className={`w-9 h-9 rounded-lg flex items-center justify-center font-semibold text-sm flex-shrink-0 ${
-          isUser
-            ? 'bg-gradient-to-br from-purple-500 to-pink-500 text-white'
-            : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-        }`}
-      >
-        {isUser ? 'U' : 'AI'}
-      </div>
+    <>
+      {/* CSS for details[open] chevron rotation */}
+      <style>{`
+        .thought-details[open] .thought-chevron {
+          transform: rotate(90deg);
+        }
+        .thought-details .thought-chevron {
+          transition: transform 0.15s ease;
+        }
+      `}</style>
 
-      {/* Content */}
-      <div className="flex-1 min-w-0">
-        <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 uppercase tracking-wide">
-          {isUser ? 'You' : 'OmniAgent'}
+      <div className="flex gap-3 md:gap-4 py-4 md:py-6">
+        {/* Avatar */}
+        <div className="w-7 h-7 md:w-8 md:h-8 rounded flex items-center justify-center shrink-0 border text-[10px] font-bold bg-zinc-900 border-zinc-800 text-zinc-400">
+          AI
         </div>
 
-        <div className="text-gray-800 dark:text-gray-200 leading-relaxed">
-          {isUser ? (
-            <p className="whitespace-pre-wrap">{message.content}</p>
-          ) : (
-            <div className="flex flex-col gap-4">
-              {/* Multi-turn thinking sections */}
-              {thinkContent.map((think, idx) => (
-                <details
-                  key={idx}
-                  className="group border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-900 overflow-hidden"
-                  open={isStreaming && idx === thinkContent.length - 1}
-                >
-                  <summary className="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors list-none">
-                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm font-medium">
-                      <Lightbulb
-                        className={`w-4 h-4 ${
-                          isStreaming ? 'animate-pulse text-amber-500' : ''
-                        }`}
-                      />
-                      <span>
-                        {isStreaming && idx === thinkContent.length - 1
-                          ? `正在思考... (${idx + 1}/${thinkContent.length})`
-                          : `思考 #${idx + 1}`}
-                      </span>
-                    </div>
-                    <ChevronDown className="w-4 h-4 text-slate-400 group-open:rotate-180 transition-transform" />
-                  </summary>
+        {/* Content */}
+        <div className="flex-1 min-w-0 pt-1 md:pt-1.5">
+          <div className="relative border-l border-zinc-800 ml-1.5 md:ml-2 pl-4 md:pl-6 space-y-4 md:space-y-6">
+            {/* 按顺序渲染所有 blocks */}
+            {message.blocks.map((block, idx) => {
+              const isBlockStreaming = isStreaming && block.id === streamingBlockId;
+              const isLastBlock = idx === (message.blocks?.length ?? 0) - 1;
 
-                  <div className="px-4 pb-4 pt-0 text-slate-600 dark:text-slate-400 text-sm leading-relaxed italic whitespace-pre-wrap">
-                    {think}
-                    {isStreaming && idx === thinkContent.length - 1 && (
-                      <span className="inline-block w-0.5 h-4 bg-slate-400 ml-1 animate-pulse" />
+              if (block.type === 'thought') {
+                return (
+                  <div key={block.id || `thought-${idx}`} className="relative">
+                    <div className={`absolute w-2 h-2 md:w-2.5 md:h-2.5 rounded-full bg-zinc-500 ring-2 md:ring-4 ring-zinc-950 -left-5 md:-left-[30px] top-1.5 md:top-2 ${isBlockStreaming ? 'animate-pulse' : ''}`} />
+                    <details className={`thought-details group ${isBlockStreaming ? 'ring-1 ring-blue-500/30' : ''}`} open={isBlockStreaming || (isLastBlock && hasIncompleteThink)}>
+                      <summary className="flex items-center gap-3 cursor-pointer text-xs font-mono text-zinc-400 uppercase tracking-wide select-none list-none py-2 px-3 bg-zinc-900/50 rounded-lg border border-zinc-800 hover:border-zinc-700 transition-colors">
+                        <svg className="thought-chevron w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                        <span className={isBlockStreaming ? 'text-blue-400 animate-pulse' : ''}>
+                          {isBlockStreaming ? 'Thinking...' : 'Thought Process'}
+                        </span>
+                        {block.toolName && (
+                          <span className={`ml-2 px-2 py-0.5 bg-blue-500/20 border border-blue-500/40 rounded text-blue-400 text-[10px] font-bold ${isBlockStreaming ? 'animate-pulse' : ''}`}>
+                            ⚙ {block.toolName}
+                          </span>
+                        )}
+                        {isBlockStreaming && (
+                          <span className="ml-auto flex gap-1">
+                            <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '200ms' }} />
+                            <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '400ms' }} />
+                          </span>
+                        )}
+                      </summary>
+                      <div className={`mt-2 p-4 bg-zinc-900/70 rounded-lg border border-zinc-700 font-mono text-sm text-zinc-400 leading-relaxed whitespace-pre-wrap ${isBlockStreaming ? 'relative overflow-hidden' : ''}`}>
+                        {block.content}
+                        {isBlockStreaming && (
+                          <span className="inline-block w-0.5 h-4 bg-blue-400 ml-1 animate-pulse align-middle" />
+                        )}
+                        {/* 流式传输时的渐变遮罩 */}
+                        {isBlockStreaming && (
+                          <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-zinc-900/90 to-transparent pointer-events-none" />
+                        )}
+                      </div>
+                    </details>
+                  </div>
+                );
+              }
+
+              // text block - 渲染 Markdown
+              return (
+                <div key={block.id || `text-${idx}`} className="relative">
+                  <div className={`absolute w-2 h-2 md:w-2.5 md:h-2.5 rounded-sm bg-emerald-500 ring-2 md:ring-4 ring-zinc-950 -left-5 md:-left-[30px] top-1.5 md:top-2 ${isBlockStreaming ? 'animate-pulse' : ''}`} />
+                  <div className="prose prose-invert prose-zinc prose-sm max-w-none">
+                    <MarkdownRenderer content={block.content} />
+                    {isBlockStreaming && (
+                      <span className="inline-block w-0.5 h-4 bg-emerald-400 ml-1 animate-pulse align-middle" />
                     )}
                   </div>
-                </details>
-              ))}
-
-              {/* Main content */}
-              {mainContent && <MarkdownRenderer content={mainContent} />}
-
-              {/* Loading dots when think closed but main not started */}
-              {!isStreaming && thinkContent.length > 0 && !mainContent && (
-                <div className="flex gap-1 items-center text-slate-400 text-sm italic">
-                  <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" />
-                  <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:0.2s]" />
-                  <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:0.4s]" />
                 </div>
-              )}
-            </div>
-          )}
+              );
+            })}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 });

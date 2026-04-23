@@ -21,6 +21,11 @@ import java.util.*;
 @Slf4j
 public class GlobToolConfig implements AgentTool {
 
+    @Override
+    public String getName() {
+        return "glob";
+    }
+
     private static final String DEFAULT_PATH = ".";
     private static final int MAX_RESULTS = 100;
 
@@ -44,7 +49,14 @@ public class GlobToolConfig implements AgentTool {
      * @param context ToolContext，用于获取动态 workspace
      * @return 匹配的文件路径列表
      */
-    @Tool(name = "glob", description = "文件路径搜索。适用：了解结构、定位某类文件。禁止：搜内容(用grep)。返回：路径列表")
+    @Tool(name = "glob", description = """
+            适用于任何代码库大小的快速文件模式匹配工具
+            -支持glob模式，如“**/*.js”或“src/**/*.ts”
+            -返回按修改时间排序的匹配文件路径
+            -需要按名称模式查找文件时使用此工具
+            -当您进行可能需要多轮globbing和greping的开放式搜索时，请使用代理工具
+            -您可以在一次响应中调用多个工具。如果可能有用，最好同时进行多个搜索
+            """)
     public String glob(
             @ToolParam(description = "Glob模式。示例：**/*.java, src/**/*Controller.java") String pattern,
             @ToolParam(description = "搜索起点。默认当前目录", required = false) String path,

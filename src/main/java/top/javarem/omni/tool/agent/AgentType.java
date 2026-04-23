@@ -13,7 +13,7 @@ public enum AgentType {
     PLAN("plan", "制定详细的实施计划，分解任务步骤", Set.of("Read", "Glob", "Grep", "Write", "Edit"), false),
     GENERAL("general", "通用问题处理，支持多种工具", Set.of("Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebSearch", "WebFetch"), false),
     CODE_REVIEWER("code-reviewer", "代码审查，提供优化建议", Set.of("Read", "Glob", "Grep"), false),
-    CLAUDE_CODE_GUIDE("claude-code-guide", "回答关于 Claude Code、SDK、API 的问题", Set.of("WebSearch", "WebFetch", "Read"), false),
+    CLAUDE_CODE_GUIDE("claude-code-guide", "Claude Code 指南助手", Set.of("WebSearch", "WebFetch", "Read"), false),
     VERIFICATION("verification", "验收测试 Agent，尝试破坏而非确认实现工作", Set.of("Read", "Glob", "Grep", "Bash"), true);
 
     private final String value;

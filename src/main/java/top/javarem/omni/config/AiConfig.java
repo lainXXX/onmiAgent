@@ -1,6 +1,7 @@
 package top.javarem.omni.config;
 
 import com.zaxxer.hikari.HikariDataSource;
+import org.springframework.ai.anthropic.AnthropicChatModel;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
@@ -21,6 +22,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import top.javarem.omni.advisor.*;
 
 import javax.sql.DataSource;
+import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
@@ -39,20 +41,20 @@ public class AiConfig {
         return miniMaxChatModel;
     }
 
-    /**
-     * OpenAI ChatClient
-     */
+    @Bean("anthropicChatModel")
+    public ChatModel anthropicChatModel(AnthropicChatModel anthropicChatModel) {
+        return anthropicChatModel;
+    }
+
     @Bean
-    @Primary
-    public ChatClient openAiChatClient(OpenAiChatModel openAiChatModel,
-                                       MessageFormatAdvisor messageFormatAdvisor,
-                                       ContextCompressionAdvisor contextCompressionAdvisor,
-                                       LifecycleToolCallAdvisor lifecycleToolCallAdvisor,
-                                       TaskProgressAdvisor taskProgressAdvisor
-                                       ) {    // 注入
-        return ChatClient.builder(openAiChatModel)
-                // 🚀 设置默认工具上下文，防止工具因缺少上下文而崩溃
-                .defaultToolContext(Map.of("debug", true))
+    public ChatClient anthropicChatClient(AnthropicChatModel anthropicChatModel,
+                                          MessageFormatAdvisor messageFormatAdvisor,
+                                          LifecycleToolCallAdvisor lifecycleToolCallAdvisor,
+                                          TaskProgressAdvisor taskProgressAdvisor,
+                                          RetryAdvisor retryAdvisor
+                                          ) {
+        return ChatClient.builder(anthropicChatModel)
+                .defaultToolContext(new HashMap<>(Map.of("debug", true)))
                 .defaultAdvisors(
                         // 1. 打印最原始的请求
 //                        new SimpleLoggerAdvisor(),
@@ -64,7 +66,37 @@ public class AiConfig {
                         messageFormatAdvisor,
                         lifecycleToolCallAdvisor,
                         taskProgressAdvisor,
-                        contextCompressionAdvisor
+                        retryAdvisor
+                )
+                .build();
+    }
+
+    /**
+     * OpenAI ChatClient
+     */
+    @Bean
+    @Primary
+    public ChatClient openAiChatClient(OpenAiChatModel openAiChatModel,
+                                       MessageFormatAdvisor messageFormatAdvisor,
+                                       LifecycleToolCallAdvisor lifecycleToolCallAdvisor,
+                                       TaskProgressAdvisor taskProgressAdvisor,
+                                       RetryAdvisor retryAdvisor
+                                       ) {    // 注入
+        return ChatClient.builder(openAiChatModel)
+                // 🚀 设置默认工具上下文，防止工具因缺少上下文而崩溃
+                .defaultToolContext(new HashMap<>(Map.of("debug", true)))
+                .defaultAdvisors(
+                        // 1. 打印最原始的请求
+//                        new SimpleLoggerAdvisor(),
+                        // 2. 拉取历史记忆
+//                        MessageChatMemoryAdvisor.builder(chatMemory).jdbcTemplate(mysqlJdbcTemplate).executor(threadPoolExecutor).build(),
+                        // 3. 匹配技能
+//                        skillActivationAdvisor,
+                        // 4. 重排消息格式并修正角色顺序
+                        messageFormatAdvisor,
+                        lifecycleToolCallAdvisor,
+                        taskProgressAdvisor,
+                        retryAdvisor
                 )
                 .build();
     }

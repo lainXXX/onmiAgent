@@ -17,9 +17,10 @@ import reactor.core.publisher.Flux;
 import top.javarem.omni.loader.SystemMessageLoader;
 import top.javarem.omni.model.context.AdvisorContextConstants;
 import top.javarem.omni.loader.SkillLoader;
-import top.javarem.omni.repository.chat.MemoryRepository;
+import top.javarem.omni.repository.chat.ChatMemoryRepository;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -31,20 +32,20 @@ import java.util.Map;
 public class MessageFormatAdvisor implements BaseAdvisor {
 
     private final SkillLoader skillLoader;
-    private final MemoryRepository memoryRepository;
+    private final ChatMemoryRepository chatMemoryRepository;
     private final SystemMessageLoader systemMessageLoader;
     private final ChatClientMessageAggregator aggregator = new ChatClientMessageAggregator();
 
-    public MessageFormatAdvisor(SkillLoader skillLoader, MemoryRepository memoryRepository, SystemMessageLoader systemMessageLoader) {
+    public MessageFormatAdvisor(SkillLoader skillLoader, ChatMemoryRepository chatMemoryRepository, SystemMessageLoader systemMessageLoader) {
         this.skillLoader = skillLoader;
-        this.memoryRepository = memoryRepository;
+        this.chatMemoryRepository = chatMemoryRepository;
         this.systemMessageLoader = systemMessageLoader;
     }
 
     @Override
     public ChatClientRequest before(ChatClientRequest request, AdvisorChain chain) {
         Map<String, Object> context = request.context();
-        String conversationId = (String) context.get(ChatMemory.CONVERSATION_ID);
+        String conversationId = (String) context.get(AdvisorContextConstants.SESSION_ID);
 
         // 1. 初始化消息容量，减少 ArrayList 扩容开销
         List<Message> messages = new ArrayList<>(16);
@@ -53,22 +54,27 @@ public class MessageFormatAdvisor implements BaseAdvisor {
         addMessageIfPresent(messages, MessageType.SYSTEM, systemMessageLoader.loadSystemPrompt());
 
         // 注意：原代码中 loadTools 被调用了两次，这里已去重
-        addMessageIfPresent(messages, MessageType.USER, systemMessageLoader.loadTools());
-        addMessageIfPresent(messages, MessageType.USER, systemMessageLoader.loadSkillsGuide());
+        addInjectedMessage(messages, MessageType.USER, systemMessageLoader.loadTools());
+        addInjectedMessage(messages, MessageType.USER, systemMessageLoader.loadSkillsGuide());
 
         // 3. 动态上下文消息 (Skill & Workspace)
         if (Boolean.TRUE.equals(context.get(AdvisorContextConstants.ENABLE_SKILL))) {
-            addMessageIfPresent(messages, MessageType.USER, skillLoader.getSkillsDescription());
+            addInjectedMessage(messages, MessageType.USER, skillLoader.getSkillsDescription());
         }
 
         String workSpace = context.get(AdvisorContextConstants.WORKSPACE).toString();
         if (StringUtils.isNotBlank(workSpace)) {
-            messages.add(new UserMessage("当前工作目录（CWD）为：" + workSpace));
+            Map<String, Object> workspaceMetadata = new HashMap<>();
+            workspaceMetadata.put(AdvisorContextConstants.OMNI_INJECTED, true);
+            messages.add(UserMessage.builder()
+                    .text("<system-reminder>当前工作目录（CWD）为：" + workSpace + "</system-reminder>")
+                    .metadata(workspaceMetadata)
+                    .build());
         }
 
         // 4. 历史记忆消息
         if (conversationId != null) {
-            List<Message> memoryMessages = memoryRepository.findMessagesByConversationId(conversationId);
+            List<Message> memoryMessages = chatMemoryRepository.getCleanContext(conversationId);
             if (memoryMessages != null) {
                 messages.addAll(memoryMessages);
             }
@@ -77,7 +83,6 @@ public class MessageFormatAdvisor implements BaseAdvisor {
 
         // 5. 合并当前用户输入并构建最终请求
         Prompt prompt = request.prompt().mutate().messages(messages).build();
-
         return request.mutate()
                 .prompt(prompt)
                 .build();
@@ -91,6 +96,22 @@ public class MessageFormatAdvisor implements BaseAdvisor {
             return;
         }
         messages.add(type == MessageType.SYSTEM ? new SystemMessage(content) : new UserMessage(content));
+    }
+
+    /**
+     * 辅助工具方法：创建带有 omni_injected 标记的系统注入消息
+     */
+    private void addInjectedMessage(List<Message> messages, MessageType type, String content) {
+        if (content == null || content.isBlank()) {
+            return;
+        }
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put(AdvisorContextConstants.OMNI_INJECTED, true);
+        if (type == MessageType.SYSTEM) {
+            messages.add(SystemMessage.builder().text(content).metadata(metadata).build());
+        } else {
+            messages.add(UserMessage.builder().text(content).metadata(metadata).build());
+        }
     }
 
     @Override

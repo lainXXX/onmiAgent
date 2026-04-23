@@ -21,6 +21,16 @@ import java.nio.file.*;
 @Slf4j
 public class WriteToolConfig implements AgentTool {
 
+    @Override
+    public String getName() {
+        return "write";
+    }
+
+    @Override
+    public boolean isCompactable() {
+        return false;
+    }
+
     private static final long MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB 内容限制
 
     /**
@@ -31,7 +41,16 @@ public class WriteToolConfig implements AgentTool {
      * @param context  ToolContext，用于获取动态 workspace
      * @return 写入结果
      */
-    @Tool(name = "write", description = "创建/覆盖文件。约束：会覆盖原内容，需先read确认")
+    @Tool(name = "write", description = """
+            将文件写入本地文件系统。
+            
+            用法：
+            -如果提供的路径中有现有文件，此工具将覆盖现有文件。
+            -如果这是一个现有文件，您必须首先使用读取工具读取文件的内容。如果您没有先读取文件，此工具将失败。
+            -更喜欢编辑工具来修改现有文件——它只发送差异。只使用此工具创建新文件或进行完全重写。
+            -除非用户明确要求，否则切勿创建文档文件（*.md）或README文件。
+            -只有在用户明确要求的情况下才使用表情符号。除非被要求，否则避免将表情符号写入文件。
+            """)
     public String write(
             @ToolParam(description = "文件路径。父目录不存在自动创建") String filePath,
             @ToolParam(description = "文件完整内容") String content,
@@ -39,7 +58,6 @@ public class WriteToolConfig implements AgentTool {
         String workspace = extractWorkspace(context);
         log.info("[write] 开始执行: path={}, contentLength={}, workspace={}",
                 filePath, content != null ? content.length() : 0, workspace);
-
         // 0. 获取 dedup 状态持有器（用于清除缓存）
         ReadStateHolder stateHolder = ReadStateHolder.fromContext(context);
 

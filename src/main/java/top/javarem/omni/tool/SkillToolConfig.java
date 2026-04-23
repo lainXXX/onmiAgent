@@ -24,6 +24,11 @@ import java.nio.file.Path;
 @Slf4j
 public class SkillToolConfig implements AgentTool {
 
+    @Override
+    public String getName() {
+        return "Skill";
+    }
+
     @Autowired
     private SkillDiscovery skillDiscovery;
 

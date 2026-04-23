@@ -30,6 +30,11 @@ import java.util.*;
 @Slf4j
 public class ReadToolConfig implements AgentTool {
 
+    @Override
+    public String getName() {
+        return "read";
+    }
+
     private static final int DEFAULT_START_LINE = 1;
     private static final int DEFAULT_MAX_LINES = 500;
     private static final int MAX_ALLOWED_LINES = 2000;
@@ -51,7 +56,23 @@ public class ReadToolConfig implements AgentTool {
      * @param context   ToolContext，用于获取动态 workspace
      * @return 文件内容
      */
-    @Tool(name = "read", description = "读取文件内容。适用：查看代码/配置。禁止：探索结构(先glob)。返回：带行号内容")
+    @Tool(name = "read", description = """
+            从本地文件系统读取文件。您可以使用此工具直接访问任何文件。
+            假设此工具能够读取机器上的所有文件。如果用户提供了文件的路径，则假定该路径有效。读取不存在的文件是可以的；将返回错误。
+            
+            用法：
+            -file_path参数必须是绝对路径，而不是相对路径
+            -默认情况下，它从文件开头最多读取2000行
+            -您可以选择指定行偏移和限制（对于长文件特别方便），但建议不提供这些参数来读取整个文件
+            -结果使用cat-n格式返回，行号从1开始
+            -此工具允许Claude Code读取图像（如PNG、JPG等）。当读取图像文件时，内容会以视觉方式呈现，因为克劳德码是一种多模式LLM。
+            -此工具可以读取PDF文件（.PDF）。对于大型PDF（超过10页），您必须提供pages参数以读取特定的页面范围（例如，pages:“1-5”）。不使用pages参数读取大型PDF将失败。每个请求最多20页。
+            -此工具可以读取Jupyter笔记本（.ipynb文件），并返回所有单元格及其输出，结合代码、文本和可视化。
+            -此工具只能读取文件，不能读取目录。要读取目录，请通过Bash工具使用ls命令。
+            -您可以在一个响应中调用多个工具。最好是推测性地并行读取多个潜在有用的文件。
+            -您将经常被要求阅读屏幕截图。如果用户提供了屏幕截图的路径，请务必使用此工具查看该路径处的文件。此工具将适用于所有临时文件路径。
+            -如果您读取了一个存在但内容为空的文件，您将收到一个系统提醒警告，而不是文件内容。
+            """)
     public String read(
             @ToolParam(description = "文件路径。相对/绝对均可") String filePath,
             @ToolParam(description = "起始行号。默认1", required = false) Integer startLine,

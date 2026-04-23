@@ -129,13 +129,21 @@ spring:
       search:
         api-key: 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
         max-results: 5
-    context:
-      compression:
+    # Advisor 层重试配置（包裹整个工具调用循环，应对 529/429 等 API 错误）
+    advisor:
+      retry:
         enabled: true
-        context-window: 204800
-        threshold: 0.75
-        keepEarliest: 2                # 保留最早 N 条
-        keepRecent: 4                  # 保留最近 N 条
+        max-attempts: 3
+        initial-delay-ms: 1000
+        multiplier: 2.0
+        max-delay-ms: 10000
+        retryable-exceptions:
+          - "529"
+          - "429"
+          - "timeout"
+          - "Timeout"
+          - "connection"
+          - "Connection refused"
   servlet:
     multipart:
       enabled: true
@@ -156,16 +164,10 @@ thread:
 
 logging:
   level:
-    org.springframework.web.client.RestClient: DEBUG
 
     # 开启 Spring AI 核心包的调试日志
-#    org.springframework.ai: DEBUG
-    # 开启底层模型客户端（如 OpenAI）的调试日志
-#    org.springframework.ai.openai.api: DEBUG
-    # 开启后打印 LLM 完整请求/响应
-#    top.javarem.skillDemo.service.SkillActivationService: TRACE
-    # SkillActivationAdvisor 日志
-#    top.javarem.skillDemo.advisor: DEBUG
+    org.springframework.ai: DEBUG
+    org.springframework.web.reactive.function.client.WebClient: DEBUG
 
 # Skill 配置 (已迁移到文件末尾统一管理)
 

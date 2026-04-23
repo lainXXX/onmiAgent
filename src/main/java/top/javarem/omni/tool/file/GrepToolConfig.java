@@ -27,6 +27,11 @@ import java.util.regex.PatternSyntaxException;
 @Slf4j
 public class GrepToolConfig implements AgentTool {
 
+    @Override
+    public String getName() {
+        return "grep";
+    }
+
     private static final String DEFAULT_PATH = ".";
     private static final int MAX_RESULTS = 50;
     private static final int MAX_LINE_LENGTH = 2000; // 单行最大长度限制
@@ -52,7 +57,17 @@ public class GrepToolConfig implements AgentTool {
      * @param context ToolContext，用于获取动态 workspace
      * @return 搜索结果列表
      */
-    @Tool(name = "grep", description = "代码内容搜索。适用：定位关键词/报错。禁止：找路径(用glob)。返回：路径:行号:内容")
+    @Tool(name = "grep", description = """
+            基于ripgrep构建的强大搜索工具
+            
+            用法：
+            -始终使用Grep进行搜索任务。切勿将`grep`或`rg`作为Bash命令调用。Grep工具已针对正确的权限和访问进行了优化。
+            -支持完整的正则表达式语法（例如“log.*Error\\”、“function\\\\s+\\\\w+\\”）\\n-使用glob参数（例如“*.js”、“**/*.tsx\\”）或类型参数（例如，“js”、“py\\”和“rust\\”）过滤文件
+            -输出模式：“content\\”显示匹配行，“files_with_matches\\”仅显示文件路径（默认），“count\\”显示匹配对数
+            -对于需要多轮的开放式搜索，使用代理工具
+            -模式语法：使用riprip grep（不是grep）-文字大括号需要转义（在Go代码中使用`interface\\\\{\\\\}`查找`interface{}`）
+            -多行匹配：默认情况下，模式仅在单行内匹配。对于像`struct\\\\{[\\\\s\\\\s]*？field`这样的跨行模式，请使用`multiline:true`
+            """)
     public String grep(
             @ToolParam(description = "关键词或正则。示例：'void main' 或 'public class.*'") String query,
             @ToolParam(description = "搜索路径。默认当前目录", required = false) String path,

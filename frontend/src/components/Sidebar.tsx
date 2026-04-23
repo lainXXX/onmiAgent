@@ -26,12 +26,12 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, on
   );
 
   return (
-    <aside className="w-64 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col h-full">
+    <aside className="w-64 md:w-72 lg:w-64 bg-zinc-950 border-r border-zinc-800 flex flex-col h-full max-w-[85vw] md:max-w-[320px]">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="p-4 border-b border-zinc-800">
         <button
           onClick={onNew}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium text-sm hover:opacity-90 transition-opacity"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-sm rounded border border-zinc-700 transition-colors"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -41,10 +41,10 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, on
       </div>
 
       {/* Conversation List */}
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {grouped.today.length > 0 && (
           <div className="mb-4">
-            <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Today</div>
+            <div className="px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Today</div>
             {grouped.today.map((conv) => (
               <ConversationItem
                 key={conv.id}
@@ -60,7 +60,7 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, on
 
         {grouped.yesterday.length > 0 && (
           <div className="mb-4">
-            <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Yesterday</div>
+            <div className="px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Yesterday</div>
             {grouped.yesterday.map((conv) => (
               <ConversationItem
                 key={conv.id}
@@ -76,7 +76,7 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, on
 
         {grouped.older.length > 0 && (
           <div className="mb-4">
-            <div className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Older</div>
+            <div className="px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Older</div>
             {grouped.older.map((conv) => (
               <ConversationItem
                 key={conv.id}
@@ -132,10 +132,10 @@ function ConversationItem({ conv, isActive, onClick, onDelete, onRename }: Conve
 
   return (
     <div
-      className={`group w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-colors ${
+      className={`group w-full flex items-center gap-2 px-3 py-2 rounded text-left text-sm transition-colors cursor-pointer ${
         isActive
-          ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
-          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+          ? 'bg-zinc-900 text-zinc-100 border border-zinc-800'
+          : 'text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300'
       }`}
     >
       <button onClick={onClick} className="flex-1 flex items-center gap-2 min-w-0">
@@ -152,13 +152,13 @@ function ConversationItem({ conv, isActive, onClick, onDelete, onRename }: Conve
             onKeyDown={handleKeyDown}
             onClick={(e) => e.stopPropagation()}
             autoFocus
-            className="flex-1 bg-transparent border-b border-purple-500 outline-none text-gray-800 dark:text-gray-200 truncate"
+            className="flex-1 bg-transparent border-b border-zinc-500 outline-none text-zinc-100 truncate"
           />
         ) : (
           <span
             className="truncate cursor-text"
             onDoubleClick={handleDoubleClick}
-            title="双击编辑标题"
+            title="Double-click to edit"
           >
             {conv.title}
           </span>
@@ -169,8 +169,8 @@ function ConversationItem({ conv, isActive, onClick, onDelete, onRename }: Conve
           e.stopPropagation();
           onDelete();
         }}
-        className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-opacity flex-shrink-0"
-        title="删除会话"
+        className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity flex-shrink-0"
+        title="Delete"
       >
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

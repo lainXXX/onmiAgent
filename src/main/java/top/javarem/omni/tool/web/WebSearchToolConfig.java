@@ -22,6 +22,11 @@ import java.util.Map;
 @Slf4j
 public class WebSearchToolConfig implements AgentTool {
 
+    @Override
+    public String getName() {
+        return "web_search";
+    }
+
     @Value("${spring.ai.tool.search.api-key:}")
     private String apiKey;
 
@@ -40,7 +45,7 @@ public class WebSearchToolConfig implements AgentTool {
                 .build();
     }
 
-    @Tool(description = "在互联网上搜索实时信息、新闻、技术文档或事实。当本地知识库无法回答、需要最新信息或实时数据时调用此工具。")
+    @Tool(name = "web_search", description = "在互联网上搜索实时信息、新闻、技术文档或事实。当本地知识库无法回答、需要最新信息或实时数据时调用此工具。")
     public String webSearch(
             @ToolParam(description = "搜索关键词或问题内容。建议使用具体的关键词而非完整句子，以获得更精准的结果") String query,
             @ToolParam(description = "最大返回结果数，防止返回过多内容。默认 5 条，最大 10 条", required = false) Integer maxResults,

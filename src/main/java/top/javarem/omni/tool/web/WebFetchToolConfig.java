@@ -40,6 +40,11 @@ import java.util.regex.Pattern;
 @Slf4j
 public class WebFetchToolConfig implements AgentTool {
 
+    @Override
+    public String getName() {
+        return "web_fetch";
+    }
+
     // ============================================================
     // 常量配置
     // ============================================================

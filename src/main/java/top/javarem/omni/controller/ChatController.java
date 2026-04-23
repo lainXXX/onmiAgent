@@ -38,20 +38,20 @@ public class ChatController {
     public String chat(@RequestBody ChatRequest request) {
         try {
             log.info("[SYNC] 用户问题：{}", request.getQuestion());
-            String[] allToolNames = toolsManager.getAllToolNames().toArray(new String[0]);
+            var allToolCallbacks = toolsManager.getToolCallbacks().toArray(new org.springframework.ai.tool.ToolCallback[0]);
             String response = openAiChatClient.prompt()
                     .user(request.getQuestion())
-                    .toolNames(allToolNames)
+                    .toolCallbacks(allToolCallbacks)
                     .advisors(spec -> spec
                             .param(ChatMemory.CONVERSATION_ID, request.getSessionId())
                             .param(AdvisorContextConstants.ENABLE_SKILL, true)
                             .param(AdvisorContextConstants.USER_ID, "zzw")
                             .param(AdvisorContextConstants.WORKSPACE, request.getWorkspace())
                     )
-                    .toolContext(Map.of(
+                    .toolContext(new java.util.HashMap<>(Map.of(
                             ChatMemory.CONVERSATION_ID, request.getSessionId(),
                             AdvisorContextConstants.USER_ID, "zzw",
-                            AdvisorContextConstants.WORKSPACE, request.getWorkspace() != null ? request.getWorkspace() : ""))
+                            AdvisorContextConstants.WORKSPACE, request.getWorkspace() != null ? request.getWorkspace() : "")))
                     .call()
                     .content();
             return response;
@@ -68,7 +68,7 @@ public class ChatController {
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<ChatChunk>> streamChat(@RequestBody ChatRequest request) {
         log.info("[USER] 用户问题：{}", request.getQuestion());
-        String[] allToolNames = toolsManager.getAllToolNames().toArray(new String[0]);
+        var allToolCallbacks = toolsManager.getToolCallbacks().toArray(new org.springframework.ai.tool.ToolCallback[0]);
 
         // Flux.defer 确保每次新请求进来，都会创建一个全新的状态机 (StreamState)
         return Flux.defer(() -> {
@@ -76,44 +76,43 @@ public class ChatController {
 
             return openAiChatClient.prompt()
                     .user(request.getQuestion())
-                    .toolNames(allToolNames)
+                    .toolCallbacks(allToolCallbacks)
                     .advisors(spec -> spec
                             .param(ChatMemory.CONVERSATION_ID, request.getSessionId())
                             .param(AdvisorContextConstants.ENABLE_SKILL, true)
                             .param(AdvisorContextConstants.USER_ID, "zzw")
                             .param(AdvisorContextConstants.WORKSPACE, request.getWorkspace())
                     )
-                    .toolContext(Map.of(
+                    .toolContext(new java.util.HashMap<>(Map.of(
                             ChatMemory.CONVERSATION_ID, request.getSessionId(),
                             AdvisorContextConstants.USER_ID, "zzw",
-                            AdvisorContextConstants.WORKSPACE, request.getWorkspace() != null ? request.getWorkspace() : ""))
+                            AdvisorContextConstants.WORKSPACE, request.getWorkspace() != null ? request.getWorkspace() : "")))
                     .stream()
                     .chatResponse()
                     .filter(response -> response.getResult() != null && response.getResult().getOutput() != null)
                     // 使用 concatMap 保证严格的顺序处理
                     .concatMap(response -> {
                         AssistantMessage output = (AssistantMessage) response.getResult().getOutput();
-                        List<ServerSentEvent<ChatChunk>> events = new ArrayList<>();
 
-                        // 1. 处理工具调用 (Tool Calls)
-                        List<AssistantMessage.ToolCall> toolCalls = output.getToolCalls();
-                        if (toolCalls != null && !toolCalls.isEmpty()) {
-                            for (AssistantMessage.ToolCall toolCall : toolCalls) {
-                                // 防重复触发：只在第一次遇到该 toolCall 时发送事件
+                        // 1. 如果模型明确识别到了工具调用（OpenAI/Anthropic 会将 JSON 解析进 toolCalls 列表）
+                        // 无论 text 是什么，必须优先处理 toolCalls
+                        if (output.getToolCalls() != null && !output.getToolCalls().isEmpty()) {
+                            List<ServerSentEvent<ChatChunk>> events = new ArrayList<>();
+                            for (AssistantMessage.ToolCall toolCall : output.getToolCalls()) {
                                 if (state.markToolReported(toolCall.id())) {
-                                    events.add(createEvent("tool", UUID.randomUUID().toString(), null, toolCall.name()));
+                                    events.add(createEvent("tool", toolCall.id(), null, toolCall.name()));
                                 }
                             }
+                            return Flux.fromIterable(events);
                         }
 
-                        // 2. 处理流式文本 (Text)
+                        // 2. 只有在确定没有 toolCalls 的情况下，才处理文本流
                         String text = output.getText();
                         if (text != null && !text.isEmpty()) {
-                            // 将新来的文本喂给状态机，状态机会返回解析好的事件列表
-                            events.addAll(state.processDelta(text));
+                            return Flux.fromIterable(state.processDelta(text));
                         }
 
-                        return Flux.fromIterable(events);
+                        return Flux.empty();
                     })
                     // 3. 极其重要：流结束时，将缓冲区最后残留的内容排空 (Flush)
                     .concatWith(Flux.defer(() -> Flux.fromIterable(state.flush())))
@@ -221,6 +220,8 @@ public class ChatController {
     }
 
     private static ServerSentEvent<ChatChunk> createEvent(String eventName, String id, String content, String toolName) {
+        // 过滤工具调用 JSON，避免暴露内部实现细节
+        content = filterToolCallJson(content);
         ChatChunk chunk = ChatChunk.builder()
                 .id(id)
                 .content(content)
@@ -232,6 +233,23 @@ public class ChatController {
                 .event(eventName)
                 .data(chunk)
                 .build();
+    }
+
+    /**
+     * 过滤掉工具调用 JSON，避免暴露内部实现细节
+     * 匹配模式: {"command":"..."} 或 {"name":"..."} 或 {"tool":"..."}
+     */
+    private static String filterToolCallJson(String text) {
+        if (text == null || text.isBlank()) {
+            return text;
+        }
+        // 移除 {"command":"..."} 模式 (含参数)
+        text = text.replaceAll("\\{\\s*\"command\"\\s*:\\s*\"[^\"]*\"\\s*,[^}]*\\}", "");
+        // 移除 {"name":"..."} 模式 (含参数)
+        text = text.replaceAll("\\{\\s*\"name\"\\s*:\\s*\"[^\"]*\"\\s*,[^}]*\\}", "");
+        // 移除工具调用相关的独立字段
+        text = text.replaceAll("\\{\\s*\"tool\"\\s*:\\s*\"[^\"]*\"\\s*,[^}]*\\}", "");
+        return text.trim();
     }
 
     /**

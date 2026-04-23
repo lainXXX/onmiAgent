@@ -18,6 +18,11 @@ import java.util.concurrent.CompletableFuture;
 @Slf4j
 public class AskUserQuestionTool implements AgentTool {
 
+    @Override
+    public String getName() {
+        return "AskUserQuestion";
+    }
+
     private static final long DEFAULT_TIMEOUT_SECONDS = 300; // 5 minutes
 
     private final AskUserQuestionService service;
