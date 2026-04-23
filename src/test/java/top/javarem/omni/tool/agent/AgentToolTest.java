@@ -85,6 +85,10 @@ class AgentToolTest {
             assertTrue(AgentType.GENERAL.isToolAllowed("Edit"));
             assertTrue(AgentType.GENERAL.isToolAllowed("Bash"));
             assertTrue(AgentType.GENERAL.isToolAllowed("WebSearch"));
+            assertTrue(AgentType.GENERAL.isToolAllowed("Skill"));
+
+            // CODE_REVIEWER 可以使用 Skill
+            assertTrue(AgentType.CODE_REVIEWER.isToolAllowed("Skill"));
         }
 
         @Test
