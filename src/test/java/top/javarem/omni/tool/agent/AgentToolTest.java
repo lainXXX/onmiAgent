@@ -48,7 +48,8 @@ class AgentToolTest {
             assertEquals(AgentType.PLAN, AgentType.fromValue("plan"));
             assertEquals(AgentType.GENERAL, AgentType.fromValue("general"));
             assertEquals(AgentType.CODE_REVIEWER, AgentType.fromValue("code-reviewer"));
-            assertEquals(AgentType.CLAUDE_CODE_GUIDE, AgentType.fromValue("claude-code-guide"));
+            // CLAUDE_CODE_GUIDE 已移除
+            assertEquals(AgentType.VERIFICATION, AgentType.fromValue("verification"));
         }
 
         @Test
@@ -94,7 +95,7 @@ class AgentToolTest {
             assertTrue(allowed.contains("plan"));
             assertTrue(allowed.contains("general"));
             assertTrue(allowed.contains("code-reviewer"));
-            assertTrue(allowed.contains("claude-code-guide"));
+            assertTrue(allowed.contains("verification"));
         }
     }
 

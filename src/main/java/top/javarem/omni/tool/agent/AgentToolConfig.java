@@ -162,7 +162,7 @@ public class AgentToolConfig implements AgentTool {
         }
     }
 
-    @Tool(name = "agentOutput", description = "Get output from a running or completed sub-agent task. " +
+    @Tool(name = "AgentOutput", description = "Get output from a running or completed sub-agent task. " +
             "Parameters: task_id (required), block (default false), timeout (default 180000ms). " +
             "Status: running=still executing, completed=finished successfully, failed=error, not_found=ID not exist.")
     public String agentOutput(

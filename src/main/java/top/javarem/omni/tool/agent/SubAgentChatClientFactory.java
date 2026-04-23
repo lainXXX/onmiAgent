@@ -9,8 +9,10 @@ import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
+import org.springframework.ai.tool.method.MethodToolCallback;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -104,7 +106,7 @@ public class SubAgentChatClientFactory {
     }
 
     /**
-     * 核心 ReAct 循环 (参考 Spring AI 底层 ToolCalling 逻辑设计)
+     * 核心 ReAct 循环 (手动接管 ToolCalling 逻辑)
      */
     private String executeLoop(String taskId, AgentType type, List<Message> messages, Map<String, Object> toolContext) {
         if (type.isOneShot()) {
@@ -116,9 +118,14 @@ public class SubAgentChatClientFactory {
 
         List<ToolCallback> filteredCallbacks = getFilteredToolCallbacks(type);
 
-        // 如果底层模型不支持自动 Tool 执行，或者需要由外部循环接管，我们在这里注入工具定义
+        // 【修复点】：使用 defaultToolCallbacks 接收编程式工具实例
         ChatClient client = ChatClient.builder(chatModel)
-                .defaultTools(filteredCallbacks)
+                .defaultToolCallbacks(filteredCallbacks.toArray(new ToolCallback[0]))
+                .build();
+
+        // 禁用框架自动执行工具，由我们的 while 循环接管，从而记录思考过程
+        ToolCallingChatOptions options = ToolCallingChatOptions.builder()
+                .internalToolExecutionEnabled(false)
                 .build();
 
         while (iterations < maxIterations) {
@@ -129,6 +136,7 @@ public class SubAgentChatClientFactory {
                 ChatResponse response = client.prompt()
                         .messages(new ArrayList<>(messages))
                         .toolContext(toolContext)
+                        .options(options) // 强制禁用自动执行，暴露出 ToolCalls 供下面处理
                         .call()
                         .chatResponse();
 
@@ -137,7 +145,7 @@ public class SubAgentChatClientFactory {
                     break;
                 }
 
-                // 1. 获取模型生成的包含内容的 AssistantMessage (可能包含 Text，也可能包含 ToolCalls)
+                // 1. 获取模型生成的包含内容的 AssistantMessage
                 AssistantMessage assistantMessage = response.getResult().getOutput();
                 messages.add(assistantMessage);
 
@@ -163,9 +171,9 @@ public class SubAgentChatClientFactory {
                                     .findFirst()
                                     .orElseThrow(() -> new IllegalStateException("模型调用了未授权或不存在的工具: " + toolName));
 
-                            // 执行工具（模拟底层 executeToolCalls 行为）
+                            // 执行工具
                             log.debug("[SubAgentFactory] 执行工具 {} 参数 {}", toolName, arguments);
-                            toolResult = callback.call(arguments);
+                            toolResult = invokeToolWithContext(callback, arguments, toolContext);
                         } catch (Exception e) {
                             log.error("[SubAgentFactory] 工具执行异常: {}", toolName, e);
                             toolResult = "Error executing tool: " + e.getMessage();
@@ -219,11 +227,13 @@ public class SubAgentChatClientFactory {
     private String executeOneShot(String taskId, AgentType type, List<Message> messages, Map<String, Object> toolContext) {
         List<ToolCallback> filteredCallbacks = getFilteredToolCallbacks(type);
 
+        // 【修复点】：使用 defaultToolCallbacks
         ChatClient client = ChatClient.builder(chatModel)
-                .defaultTools(new StaticToolCallbackResolver(filteredCallbacks))
+                .defaultToolCallbacks(filteredCallbacks.toArray(new ToolCallback[0]))
                 .build();
 
         try {
+            // OneShot 模式我们允许框架自动执行内部工具（如果大模型觉得有必要调用的话）
             ChatResponse response = client.prompt()
                     .messages(new ArrayList<>(messages))
                     .toolContext(toolContext)
@@ -275,9 +285,6 @@ public class SubAgentChatClientFactory {
                 lower.contains("final result");
     }
 
-    /**
-     * 动态构建 System Prompt
-     */
     private String buildSystemPrompt(AgentType type, String workDir) {
         String basePrompt = switch (type) {
             case EXPLORE -> """
@@ -293,7 +300,8 @@ public class SubAgentChatClientFactory {
                 1. 先用 Glob 了解整体结构
                 2. 用 Grep 搜索关键代码
                 3. 用 Read 深入理解具体实现
-                4. 总结发现并给出建议
+                4. Bash工具只可使用只读权限
+                5. 总结发现并给出建议
 
                 输出要求：
                 - 结构化展示发现
@@ -387,41 +395,53 @@ public class SubAgentChatClientFactory {
                 1. 用 Glob 找到相关代码文件
                 2. 用 Read 仔细阅读代码
                 3. 用 Grep 追踪关键逻辑
-                4. 综合分析并给出建议
+                4. Bash工具只可使用只读权限
+                5. 综合分析并给出建议
 
                 输出要求：
                 - 列出发现的问题（分严重程度）
                 - 提供具体的修复建议
                 - 给出优化示例代码
                 """;
-            case CLAUDE_CODE_GUIDE -> """
-                你是一个专业的文档助手 Agent。
-
-                职责：
-                - 回答关于 Claude Code CLI 工具的问题
-                - 解答关于 Claude Agent SDK 的问题
-                - 说明 Claude API 的使用方法
-
-                工作方式：
-                1. 用 WebSearch 搜索最新文档
-                2. 用 WebFetch 获取详细文档
-                3. 用 Read 查看本地配置文件
-
-                注意事项：
-                - 只负责回答关于工具本身的问题
-                - 不编写实际代码
-                - 提供准确的技术文档链接
-                """;
             default -> AgentType.GENERAL.getDescription();
         };
 
-        // Skills 注入（如果 SkillLoader 有内容）
         String skillsSection = skillLoader.getSkillsDescription();
         if (skillsSection != null && !skillsSection.isBlank()) {
             basePrompt = basePrompt + "\n\n=== 可用技能 (Skills) ===\n" + skillsSection;
         }
 
-        // 强提醒工作区位置
-        return basePrompt + "\n\n=== 环境信息 ===\n当前分配给你的沙盒工作目录是: " + workDir + "\n请确保你所有的文件操作都严格限制在此目录下。";
+        return basePrompt + "\n\n=== 环境信息 ===\n当前分配给你的沙盒工作目录是: " + workDir + "\n请确保你所有的操作都限制在此目录下。";
+    }
+
+    /**
+     * 使用反射调用工具，确保 ToolContext 被正确传递
+     *
+     * <p>Spring AI 的 MethodToolCallback.call(String) 内部使用 ToolContext.EMPTY，
+     * 但 BashTool 等工具需要实际的上下文（workspace、userId 等）。
+     * 因此需要用反射直接调用方法并传入正确的 ToolContext。</p>
+     */
+    private String invokeToolWithContext(ToolCallback callback, String arguments, Map<String, Object> toolContextMap) {
+        try {
+            if (callback instanceof MethodToolCallback methodCallback) {
+                // 构建 ToolContext（直接使用 Map 构造）
+                Map<String, Object> contextData = toolContextMap != null ? new java.util.HashMap<>(toolContextMap) : new java.util.HashMap<>();
+                ToolContext toolContext = new ToolContext(contextData);
+
+                // 使用反射调用 MethodToolCallback 的内部方法
+                // MethodToolCallback 有一个 call(String, ToolContext) 方法
+                java.lang.reflect.Method callMethod = MethodToolCallback.class.getDeclaredMethod(
+                        "call", String.class, ToolContext.class);
+                callMethod.setAccessible(true);
+                return (String) callMethod.invoke(methodCallback, arguments, toolContext);
+            } else {
+                // 不支持的回调类型，回退到普通调用
+                log.warn("[SubAgentFactory] 工具 {} 不是 MethodToolCallback，回退到普通调用", callback.getClass().getSimpleName());
+                return callback.call(arguments);
+            }
+        } catch (Exception e) {
+            log.error("[SubAgentFactory] 反射调用工具异常: {}", e.getMessage(), e);
+            return "工具执行异常: " + e.getMessage();
+        }
     }
 }
