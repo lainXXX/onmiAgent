@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import top.javarem.omni.loader.SkillLoader;
+import top.javarem.omni.model.context.ReadStateHolder;
 import top.javarem.omni.tool.ToolsManager;
 
 import java.lang.reflect.Field;
@@ -126,9 +127,14 @@ public class SubAgentChatClientFactory {
      * 核心 ReAct 循环 (手动接管 ToolCalling 逻辑)
      */
     private String executeLoop(String taskId, AgentType type, List<Message> messages, Map<String, Object> toolContext) {
+        // OneShot 类型走简化流程
         if (type.isOneShot()) {
             return executeOneShot(taskId, type, messages, toolContext);
         }
+
+        // 设置 ThreadLocal ReadStateHolder，确保工具执行时能获取到共享状态
+        ReadStateHolder holder = new ReadStateHolder();
+        ReadStateHolder.setThreadLocal(holder);
 
         int iterations = 0;
         String lastOutputText = null;
@@ -240,17 +246,22 @@ public class SubAgentChatClientFactory {
         }
 
         sessionManager.updateLastOutput(taskId, lastOutputText);
+        ReadStateHolder.clearThreadLocal(); // 清除 ThreadLocal
         return lastOutputText;
     }
 
     private String executeOneShot(String taskId, AgentType type, List<Message> messages, Map<String, Object> toolContext) {
-        List<ToolCallback> filteredCallbacks = getFilteredToolCallbacks(type);
-
-        ChatClient client = ChatClient.builder(chatModel)
-                .defaultToolCallbacks(filteredCallbacks.toArray(new ToolCallback[0]))
-                .build();
+        // 设置 ThreadLocal ReadStateHolder
+        ReadStateHolder holder = new ReadStateHolder();
+        ReadStateHolder.setThreadLocal(holder);
 
         try {
+            List<ToolCallback> filteredCallbacks = getFilteredToolCallbacks(type);
+
+            ChatClient client = ChatClient.builder(chatModel)
+                    .defaultToolCallbacks(filteredCallbacks.toArray(new ToolCallback[0]))
+                    .build();
+
             // OneShot 模式我们允许框架自动执行内部工具
             ChatResponse response = client.prompt()
                     .messages(new ArrayList<>(messages))
@@ -274,6 +285,8 @@ public class SubAgentChatClientFactory {
         } catch (Exception e) {
             log.error("[SubAgentFactory] One-Shot执行异常", e);
             return "执行出错: " + e.getMessage();
+        } finally {
+            ReadStateHolder.clearThreadLocal(); // 清除 ThreadLocal
         }
     }
 

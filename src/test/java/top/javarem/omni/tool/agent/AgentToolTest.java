@@ -79,10 +79,11 @@ class AgentToolTest {
             assertFalse(AgentType.EXPLORE.isToolAllowed("Write"));
             assertFalse(AgentType.EXPLORE.isToolAllowed("Edit"));
 
-            // PLAN 使用 Read, Glob, Grep, Write, Edit, Skill, Bash
+            // PLAN 使用 Read, Glob, Grep, Write, Edit, Skill, Bash, WebSearch, WebFetch
             assertTrue(AgentType.PLAN.isToolAllowed("Skill"));
             assertTrue(AgentType.PLAN.isToolAllowed("Bash"));
-            assertFalse(AgentType.PLAN.isToolAllowed("WebSearch"));
+            assertTrue(AgentType.PLAN.isToolAllowed("WebSearch"));
+            assertTrue(AgentType.PLAN.isToolAllowed("WebFetch"));
 
             // GENERAL 可以使用所有工具
             assertTrue(AgentType.GENERAL.isToolAllowed("Read"));
