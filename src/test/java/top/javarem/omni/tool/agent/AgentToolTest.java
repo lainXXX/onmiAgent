@@ -71,13 +71,18 @@ class AgentToolTest {
         @Test
         @DisplayName("isToolAllowed 应该正确过滤工具")
         void isToolAllowed_filtersTools() {
-            // EXPLORE 只能使用 Read, Glob, Grep
+            // EXPLORE 使用 Read, Glob, Grep, Bash
             assertTrue(AgentType.EXPLORE.isToolAllowed("Read"));
             assertTrue(AgentType.EXPLORE.isToolAllowed("Glob"));
             assertTrue(AgentType.EXPLORE.isToolAllowed("Grep"));
+            assertTrue(AgentType.EXPLORE.isToolAllowed("Bash"));
             assertFalse(AgentType.EXPLORE.isToolAllowed("Write"));
             assertFalse(AgentType.EXPLORE.isToolAllowed("Edit"));
-            assertFalse(AgentType.EXPLORE.isToolAllowed("Bash"));
+
+            // PLAN 使用 Read, Glob, Grep, Write, Edit, Skill, Bash
+            assertTrue(AgentType.PLAN.isToolAllowed("Skill"));
+            assertTrue(AgentType.PLAN.isToolAllowed("Bash"));
+            assertFalse(AgentType.PLAN.isToolAllowed("WebSearch"));
 
             // GENERAL 可以使用所有工具
             assertTrue(AgentType.GENERAL.isToolAllowed("Read"));
@@ -87,8 +92,13 @@ class AgentToolTest {
             assertTrue(AgentType.GENERAL.isToolAllowed("WebSearch"));
             assertTrue(AgentType.GENERAL.isToolAllowed("Skill"));
 
-            // CODE_REVIEWER 可以使用 Skill
+            // CODE_REVIEWER 使用 Read, Glob, Grep, Skill, Bash
             assertTrue(AgentType.CODE_REVIEWER.isToolAllowed("Skill"));
+            assertTrue(AgentType.CODE_REVIEWER.isToolAllowed("Bash"));
+
+            // VERIFICATION 使用 Read, Glob, Grep, Bash
+            assertTrue(AgentType.VERIFICATION.isToolAllowed("Bash"));
+            assertFalse(AgentType.VERIFICATION.isToolAllowed("Skill"));
         }
 
         @Test
