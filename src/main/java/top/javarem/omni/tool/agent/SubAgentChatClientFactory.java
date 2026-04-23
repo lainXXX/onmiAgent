@@ -127,8 +127,11 @@ public class SubAgentChatClientFactory {
                 .build();
 
         // 禁用框架自动执行工具，由我们的 while 循环接管，从而记录思考过程
+        // 注意：toolContext 必须设置在 options 上，这样 DefaultToolCallingManager.buildToolContext
+        // 才能获取到我们的上下文数据（userId、taskId 等）
         ToolCallingChatOptions options = ToolCallingChatOptions.builder()
                 .internalToolExecutionEnabled(false)
+                .toolContext(toolContext)
                 .build();
 
         while (iterations < maxIterations) {
@@ -138,8 +141,7 @@ public class SubAgentChatClientFactory {
             try {
                 ChatResponse response = client.prompt()
                         .messages(new ArrayList<>(messages))
-                        .toolContext(toolContext)
-                        .options(options) // 强制禁用自动执行，暴露出 ToolCalls
+                        .options(options) // options 已包含 toolContext
                         .call()
                         .chatResponse();
 
