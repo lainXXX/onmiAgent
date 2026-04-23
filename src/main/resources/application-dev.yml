@@ -36,7 +36,7 @@ spring:
           jdbc:
             initialize-schema: never # 自动创建表选项
         auto-configuration:
-          enabled: false
+          enabled: true
         observations:
           log-prompt: true
           log-completion: true
@@ -104,14 +104,21 @@ spring:
           model: MiniMax-M2.7  # 支持 claude-sonnet-4-5, claude-opus-4-5, claude-haiku-4-5 等
           temperature: 0.8
 
-    # MiniMax API 重试配置（应对 429/529 限流）
+    # 重试配置（应对 429/529 限流）
+
     retry:
-      enabled: true
-      max-attempts: 3
+      # 最大重试次数
+      max-attempts: 10
+      # 设置触发重试的 HTTP 状态码（显式包含 529）
+      on-http-codes: 429,502,503,504,529
+      # 调整退避策略
       backoff:
-        initial-interval: 2000
-        max-interval: 30000
+        # 初始等待时间
+        initial-interval: 3s
+        # 乘数，避免等待时间瞬间爆炸到几分钟
         multiplier: 2
+        # 最大间隔限制在 30 秒，不要让一个请求挂起超过 * 秒
+        max-interval: 120s
     # 向量嵌入配置
     zhipuai:
       api-key: eba47b795b6a4b828eb81df14e09500a.50FgIRxjwMFZQALh
