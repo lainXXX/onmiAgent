@@ -101,7 +101,7 @@ The chat system uses Spring AI's Advisor pattern to process requests/responses i
 | `AgentSessionManager` | In-memory session history for resume |
 | `AgentTaskRegistry` | Async task tracking with ownership checks |
 | `WorktreeManager` | Git worktree isolation for agent tasks |
-| `AgentType` | Enum: EXPLORE (One-Shot), PLAN (One-Shot), VERIFICATION (One-Shot), GENERAL, CODE_REVIEWER, CLAUDE_CODE_GUIDE |
+| `AgentType` | Enum: EXPLORE (One-Shot), PLAN (One-Shot), VERIFICATION (One-Shot), GENERAL, CODE_REVIEWER |
 
 Key features:
 - **Tool filtering**: Each `AgentType` has an `allowedTools` set; `SubAgentChatClientFactory` filters `ToolsManager.getToolCallbacks()` accordingly
