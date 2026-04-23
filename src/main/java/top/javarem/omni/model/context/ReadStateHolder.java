@@ -10,19 +10,32 @@ import java.util.concurrent.ConcurrentHashMap;
  * ReadState 持有器
  * 管理所有文件的读取状态，用于 dedup 机制
  *
- * <p>支持两种存储方式：
- * <ul>
- *   <li>ToolContext Map 存储（默认）</li>
- *   <li>ThreadLocal 存储（当 ToolContext 不可变时降级使用）</li>
- * </ul>
+ * <p>利用"不可变容器本身包含可变引用"的特性：
+ * 在 SubAgentChatClientFactory.execute() 中预先创建 ConcurrentHashMap 作为容器，
+ * 放入 toolContext 的 "READ_STATE_CONTAINER" key 下。
+ * 即使 Spring AI 将 toolContext 封装为不可变 Map，
+ * 我们依然可以通过容器引用修改内部状态。
  */
 @Slf4j
 public final class ReadStateHolder {
 
-    // ThreadLocal 存储：解决 ToolContext 不可变时无法跨调用共享的问题
-    private static final ThreadLocal<ReadStateHolder> THREAD_LOCAL_HOLDER = new ThreadLocal<>();
+    private static final String STATE_CONTAINER_KEY = "READ_STATE_CONTAINER";
 
-    private final Map<String, ReadState> stateMap = new ConcurrentHashMap<>();
+    private final Map<String, ReadState> stateMap;
+
+    /**
+     * 使用指定的状态 Map 创建 holder
+     */
+    public ReadStateHolder(Map<String, ReadState> stateMap) {
+        this.stateMap = stateMap;
+    }
+
+    /**
+     * 创建空 holder（兜底用）
+     */
+    public ReadStateHolder() {
+        this.stateMap = new ConcurrentHashMap<>();
+    }
 
     public ReadState get(String filePath) {
         return stateMap.get(normalizePath(filePath));
@@ -40,77 +53,38 @@ public final class ReadStateHolder {
         stateMap.clear();
     }
 
-    // ==================== ThreadLocal 管理 ====================
-
-    /**
-     * 设置当前线程的 ReadStateHolder
-     * 在 SubAgentFactory 创建 ReAct 循环前调用
-     */
-    public static void setThreadLocal(ReadStateHolder holder) {
-        THREAD_LOCAL_HOLDER.set(holder);
-    }
-
-    /**
-     * 获取当前线程的 ReadStateHolder
-     */
-    public static ReadStateHolder getThreadLocal() {
-        return THREAD_LOCAL_HOLDER.get();
-    }
-
-    /**
-     * 清除当前线程的 ReadStateHolder
-     * 在 ReAct 循环结束后调用
-     */
-    public static void clearThreadLocal() {
-        THREAD_LOCAL_HOLDER.remove();
-    }
-
     // ==================== 工厂方法 ====================
 
     /**
-     * 获取或创建 holder
+     * 从 ToolContext 获取或创建 holder
      *
-     * <p>优先级：
+     * <p>实现逻辑：
      * <ol>
-     *   <li>ThreadLocal（最高优先级，确保跨调用共享）</li>
-     *   <li>ToolContext Map（次优先级）</li>
-     *   <li>新建实例（兜底，保证工具可用）</li>
+     *   <li>从 toolContext 中获取预创建的 stateContainer</li>
+     *   <li>如果不存在（降级场景），创建新的 ConcurrentHashMap 作为兜底</li>
      * </ol>
      */
     public static ReadStateHolder fromContext(ToolContext context) {
-        // 1. 优先从 ThreadLocal 获取（最高优先级）
-        ReadStateHolder threadLocalHolder = THREAD_LOCAL_HOLDER.get();
-        if (threadLocalHolder != null) {
-            log.debug("[ReadStateHolder] 使用 ThreadLocal holder");
-            return threadLocalHolder;
+        if (context == null || context.getContext() == null) {
+            log.debug("[ReadStateHolder] context 为空，返回空 holder");
+            return new ReadStateHolder();
         }
 
-        // 2. 从 ToolContext Map 获取（次优先级）
-        if (context != null && context.getContext() != null) {
-            Map<String, Object> contextMap = context.getContext();
-            Object existing = contextMap.get(AdvisorContextConstants.READ_STATE_MAP);
-            if (existing instanceof ReadStateHolder) {
-                log.debug("[ReadStateHolder] 使用 ToolContext holder");
-                return (ReadStateHolder) existing;
-            }
+        Map<String, Object> contextMap = context.getContext();
+
+        // 1. 获取预创建的 stateContainer
+        @SuppressWarnings("unchecked")
+        Map<String, ReadState> stateMap = (Map<String, ReadState>) contextMap.get(STATE_CONTAINER_KEY);
+
+        if (stateMap != null) {
+            log.debug("[ReadStateHolder] 使用 stateContainer，size={}", stateMap.size());
+            return new ReadStateHolder(stateMap);
         }
 
-        // 3. 创建新的 holder（兜底）
-        ReadStateHolder holder = new ReadStateHolder();
-
-        // 4. 尝试存入 ToolContext（可能因不可变 Map 而失败）
-        if (context != null && context.getContext() != null) {
-            try {
-                context.getContext().put(AdvisorContextConstants.READ_STATE_MAP, holder);
-                log.debug("[ReadStateHolder] 新 holder 已存入 ToolContext");
-            } catch (UnsupportedOperationException e) {
-                log.warn("[ReadStateHolder] ToolContext Map 不可变，无法存入，依赖 ThreadLocal 方案");
-            } catch (Exception e) {
-                log.error("[ReadStateHolder] 存入 ToolContext 时发生异常", e);
-            }
-        }
-
-        return holder;
+        // 2. 降级：创建新的 Map 作为兜底
+        log.debug("[ReadStateHolder] stateContainer 不存在，创建兜底 holder");
+        Map<String, ReadState> fallbackMap = new ConcurrentHashMap<>();
+        return new ReadStateHolder(fallbackMap);
     }
 
     private static String normalizePath(String path) {

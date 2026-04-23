@@ -100,7 +100,7 @@ public class SubAgentChatClientFactory {
                 messages.add(new UserMessage(prompt));
             }
 
-            // 使用 ConcurrentHashMap 确保外部传递的 Map 是可变且线程安全的
+            // 使用 ConcurrentHashMap 作为 toolContext 的基础
             Map<String, Object> toolContext = new ConcurrentHashMap<>();
             toolContext.put("userId", userId);
             toolContext.put("taskId", taskId);
@@ -108,6 +108,12 @@ public class SubAgentChatClientFactory {
             if (worktreePath != null) {
                 toolContext.put("worktreePath", worktreePath.toAbsolutePath().toString());
             }
+
+            // 预先创建 READ_STATE_CONTAINER，用于 ReadStateHolder 的去重机制
+            // 这样即使 Spring AI 将 toolContext 封装为不可变 Map，
+            // 我们依然可以通过这个容器引用修改内部状态
+            Map<String, Object> stateContainer = new ConcurrentHashMap<>();
+            toolContext.put("READ_STATE_CONTAINER", stateContainer);
 
             String finalOutput = executeLoop(taskId, type, messages, toolContext);
 
@@ -131,10 +137,6 @@ public class SubAgentChatClientFactory {
         if (type.isOneShot()) {
             return executeOneShot(taskId, type, messages, toolContext);
         }
-
-        // 设置 ThreadLocal ReadStateHolder，确保工具执行时能获取到共享状态
-        ReadStateHolder holder = new ReadStateHolder();
-        ReadStateHolder.setThreadLocal(holder);
 
         int iterations = 0;
         String lastOutputText = null;
@@ -246,14 +248,10 @@ public class SubAgentChatClientFactory {
         }
 
         sessionManager.updateLastOutput(taskId, lastOutputText);
-        ReadStateHolder.clearThreadLocal(); // 清除 ThreadLocal
         return lastOutputText;
     }
 
     private String executeOneShot(String taskId, AgentType type, List<Message> messages, Map<String, Object> toolContext) {
-        // 设置 ThreadLocal ReadStateHolder
-        ReadStateHolder holder = new ReadStateHolder();
-        ReadStateHolder.setThreadLocal(holder);
 
         try {
             List<ToolCallback> filteredCallbacks = getFilteredToolCallbacks(type);
@@ -285,8 +283,6 @@ public class SubAgentChatClientFactory {
         } catch (Exception e) {
             log.error("[SubAgentFactory] One-Shot执行异常", e);
             return "执行出错: " + e.getMessage();
-        } finally {
-            ReadStateHolder.clearThreadLocal(); // 清除 ThreadLocal
         }
     }
 
