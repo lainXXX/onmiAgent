@@ -36,6 +36,20 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class SubAgentChatClientFactory {
 
+    // ========== 反射缓存（避免重复查找 Method，提升性能）==========
+    private static final java.lang.reflect.Method CALL_METHOD;
+    // ToolContext 实现类的 Field 缓存（key: 实现类, value: context Field）
+    private static final Map<Class<?>, Field> CONTEXT_FIELD_CACHE = new ConcurrentHashMap<>();
+
+    static {
+        try {
+            CALL_METHOD = MethodToolCallback.class.getDeclaredMethod("call", String.class, ToolContext.class);
+            CALL_METHOD.setAccessible(true);
+        } catch (Exception e) {
+            throw new RuntimeException("反射初始化失败: " + e.getMessage(), e);
+        }
+    }
+
     private final ChatModel chatModel;
     private final ToolsManager toolsManager;
     private final AgentSessionManager sessionManager;
@@ -505,13 +519,13 @@ public class SubAgentChatClientFactory {
 
     /**
      * 使用反射调用工具，确保 ToolContext 被正确传递
-     * 【修复】：注入可变的 Map 防止 Spring AI 默认的 UnmodifiableMap 导致 UnsupportedOperationException
+     *
+     * <p>性能优化：Method 静态缓存，Field 按类名缓存，两者都避免重复反射查找。
      */
     private String invokeToolWithContext(ToolCallback callback, String arguments, Map<String, Object> toolContextMap) {
         try {
             if (callback instanceof MethodToolCallback methodCallback) {
-                // SpringAI 在高版本中使用 Map.copyOf 会生成不可变集合，
-                // 为了兼容你的 ReadStateHolder 内部使用 put 方法，我们强制注入可变的 ConcurrentHashMap。
+                // 使用可变的 ConcurrentHashMap 替换不可变实现
                 Map<String, Object> safeMutableContext = new ConcurrentHashMap<>();
                 if (toolContextMap != null) {
                     safeMutableContext.putAll(toolContextMap);
@@ -519,27 +533,26 @@ public class SubAgentChatClientFactory {
 
                 ToolContext toolContext = new ToolContext(safeMutableContext);
 
-                // 【核心修复】：反射替换 ToolContext 实现类的内部 map
-                // 注意：ToolContext 是接口，context 字段在其实现类 ToolContextImpl 上
-                // 必须从 toolContext.getClass() 获取实际类，而非 ToolContext.class
-                try {
-                    Field contextField = toolContext.getClass().getDeclaredField("context");
-                    contextField.setAccessible(true);
-                    contextField.set(toolContext, safeMutableContext);
+                // 反射替换 ToolContext 实现类的内部 map（使用类名缓存的 Field）
+                Class<?> ctxClass = toolContext.getClass();
+                Field ctxField = CONTEXT_FIELD_CACHE.computeIfAbsent(ctxClass, clazz -> {
+                    try {
+                        Field f = clazz.getDeclaredField("context");
+                        f.setAccessible(true);
+                        return f;
+                    } catch (NoSuchFieldException e) {
+                        log.warn("[SubAgentFactory] ToolContext 实现类 {} 未找到 context 字段", clazz);
+                        return null;
+                    }
+                });
+                if (ctxField != null) {
+                    ctxField.set(toolContext, safeMutableContext);
                     log.debug("[SubAgentFactory] ToolContext map 替换成功");
-                } catch (NoSuchFieldException e) {
-                    log.warn("[SubAgentFactory] ToolContext 未找到 context 字段，可能版本不兼容: {}", toolContext.getClass());
-                } catch (Exception e) {
-                    log.warn("[SubAgentFactory] ToolContext map 替换失败: {}", e.getMessage());
                 }
 
-                // 使用反射调用 MethodToolCallback 的内部方法
-                java.lang.reflect.Method callMethod = MethodToolCallback.class.getDeclaredMethod(
-                        "call", String.class, ToolContext.class);
-                callMethod.setAccessible(true);
-                return (String) callMethod.invoke(methodCallback, arguments, toolContext);
+                // 使用缓存的 Method 反射调用
+                return (String) CALL_METHOD.invoke(methodCallback, arguments, toolContext);
             } else {
-                // 不支持的回调类型，回退到普通调用
                 log.warn("[SubAgentFactory] 工具 {} 不是 MethodToolCallback，回退到普通调用", callback.getClass().getSimpleName());
                 return callback.call(arguments);
             }
