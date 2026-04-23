@@ -17,10 +17,9 @@ import reactor.core.publisher.Flux;
 import top.javarem.omni.loader.SystemMessageLoader;
 import top.javarem.omni.model.context.AdvisorContextConstants;
 import top.javarem.omni.loader.SkillLoader;
-import top.javarem.omni.chat.repository.ChatMemoryRepository;
+import top.javarem.omni.repository.chat.ChatMemoryRepository;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +45,7 @@ public class MessageFormatAdvisor implements BaseAdvisor {
     @Override
     public ChatClientRequest before(ChatClientRequest request, AdvisorChain chain) {
         Map<String, Object> context = request.context();
-        String conversationId = (String) context.get(ChatMemory.CONVERSATION_ID);
+        String conversationId = (String) context.get(AdvisorContextConstants.SESSION_ID);
 
         // 1. 初始化消息容量，减少 ArrayList 扩容开销
         List<Message> messages = new ArrayList<>(16);
@@ -68,14 +67,14 @@ public class MessageFormatAdvisor implements BaseAdvisor {
             Map<String, Object> workspaceMetadata = new HashMap<>();
             workspaceMetadata.put(AdvisorContextConstants.OMNI_INJECTED, true);
             messages.add(UserMessage.builder()
-                    .text("当前工作目录（CWD）为：" + workSpace)
+                    .text("<system-reminder>当前工作目录（CWD）为：" + workSpace + "</system-reminder>")
                     .metadata(workspaceMetadata)
                     .build());
         }
 
         // 4. 历史记忆消息
         if (conversationId != null) {
-            List<Message> memoryMessages = chatMemoryRepository.findMessagesByConversationId(conversationId);
+            List<Message> memoryMessages = chatMemoryRepository.getCleanContext(conversationId);
             if (memoryMessages != null) {
                 messages.addAll(memoryMessages);
             }

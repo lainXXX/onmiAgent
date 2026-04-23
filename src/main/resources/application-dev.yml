@@ -129,13 +129,6 @@ spring:
       search:
         api-key: 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
         max-results: 5
-    context:
-      compression:
-        enabled: false
-        context-window: 204800
-        threshold: 0.75
-        keepEarliest: 2                # 保留最早 N 条
-        keepRecent: 4                  # 保留最近 N 条
     # Advisor 层重试配置（包裹整个工具调用循环，应对 529/429 等 API 错误）
     advisor:
       retry:

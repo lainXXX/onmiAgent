@@ -101,13 +101,6 @@ spring:
       search:
         api-key: xxxx
         max-results: 5
-    context:
-      compression:
-        enabled: true
-        context-window: 204800
-        threshold: 0.75
-        keepEarliest: 2                # 保留最早 N 条
-        keepRecent: 4                  # 保留最近 N 条
   servlet:
     multipart:
       enabled: true

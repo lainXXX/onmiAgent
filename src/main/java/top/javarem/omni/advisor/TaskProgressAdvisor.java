@@ -10,7 +10,7 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Component;
-import top.javarem.omni.chat.repository.ChatMemoryRepository;
+import top.javarem.omni.repository.chat.ChatMemoryRepository;
 import top.javarem.omni.model.task.TaskEntity;
 import top.javarem.omni.service.task.TaskService;
 
@@ -150,7 +150,7 @@ public class TaskProgressAdvisor implements BaseAdvisor {
 
     private int calculateRoundsSince(String sessionId, LocalDateTime taskUpdatedAt) {
         try {
-            List<Message> messages = chatMemoryRepository.findMessagesByConversationId(sessionId);
+            List<Message> messages = chatMemoryRepository.getCleanContext(sessionId);
             long cutoffMs = taskUpdatedAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
             return (int) messages.stream()
                 .filter(m -> m.getMetadata() != null)
@@ -169,7 +169,7 @@ public class TaskProgressAdvisor implements BaseAdvisor {
 
     private int calculateTotalRounds(String sessionId) {
         try {
-            return chatMemoryRepository.findMessagesByConversationId(sessionId).size() / 2;
+            return chatMemoryRepository.getCleanContext(sessionId).size() / 2;
         } catch (Exception e) {
             return 0;
         }

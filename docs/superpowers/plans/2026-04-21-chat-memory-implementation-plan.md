@@ -121,6 +121,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import top.javarem.omni.memory.entity.MessageType;
+
 import java.time.LocalDateTime;
 
 @Data
@@ -192,12 +194,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
-import top.javarem.omni.chat.entity.ChatMemory;
-import top.javarem.omni.chat.entity.MessageType;
+import top.javarem.omni.memory.entity.ChatMemory;
+import top.javarem.omni.memory.entity.MessageType;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
@@ -220,7 +219,7 @@ public class ChatMemoryRepository {
             .completionTokens(rs.getObject("completion_tokens") != null ? rs.getInt("completion_tokens") : 0)
             .totalTokens(rs.getObject("total_tokens") != null ? rs.getInt("total_tokens") : 0)
             .errorCode(rs.getString("error_code"))
-            .createdAt(rs.getTimestamp("created_at") != null ? 
+            .createdAt(rs.getTimestamp("created_at") != null ?
                     rs.getTimestamp("created_at").toLocalDateTime() : null)
             .build();
 
@@ -229,11 +228,11 @@ public class ChatMemoryRepository {
      */
     public void save(ChatMemory chatMemory) {
         String sql = """
-            INSERT INTO chat_memory (id, parent_id, session_id, user_id, message_type, content, 
-                                    tool_call_id, tool_name, prompt_tokens, completion_tokens, total_tokens, error_code)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
-        jdbcTemplate.update(sql, 
+                INSERT INTO chat_memory (id, parent_id, session_id, user_id, message_type, content, 
+                                        tool_call_id, tool_name, prompt_tokens, completion_tokens, total_tokens, error_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """;
+        jdbcTemplate.update(sql,
                 chatMemory.getId(),
                 chatMemory.getParentId(),
                 chatMemory.getSessionId(),
@@ -261,13 +260,13 @@ public class ChatMemoryRepository {
      */
     public List<ChatMemory> findContextBySessionId(String sessionId, String headId) {
         String sql = """
-            WITH RECURSIVE ctx AS (
-                SELECT * FROM chat_memory WHERE id = ?
-                UNION ALL
-                SELECT m.* FROM chat_memory m INNER JOIN ctx ON ctx.parent_id = m.id
-            )
-            SELECT * FROM ctx ORDER BY created_at
-            """;
+                WITH RECURSIVE ctx AS (
+                    SELECT * FROM chat_memory WHERE id = ?
+                    UNION ALL
+                    SELECT m.* FROM chat_memory m INNER JOIN ctx ON ctx.parent_id = m.id
+                )
+                SELECT * FROM ctx ORDER BY created_at
+                """;
         return jdbcTemplate.query(sql, ROW_MAPPER, headId);
     }
 
@@ -276,13 +275,13 @@ public class ChatMemoryRepository {
      */
     public int sumTokensBySessionId(String sessionId) {
         String sql = """
-            WITH RECURSIVE ctx AS (
-                SELECT * FROM chat_memory WHERE id = (SELECT head_id FROM chat_session WHERE id = ?)
-                UNION ALL
-                SELECT m.* FROM chat_memory m INNER JOIN ctx ON ctx.parent_id = m.id
-            )
-            SELECT COALESCE(SUM(total_tokens), 0) as total FROM ctx
-            """;
+                WITH RECURSIVE ctx AS (
+                    SELECT * FROM chat_memory WHERE id = (SELECT head_id FROM chat_session WHERE id = ?)
+                    UNION ALL
+                    SELECT m.* FROM chat_memory m INNER JOIN ctx ON ctx.parent_id = m.id
+                )
+                SELECT COALESCE(SUM(total_tokens), 0) as total FROM ctx
+                """;
         Integer result = jdbcTemplate.queryForObject(sql, Integer.class, sessionId);
         return result != null ? result : 0;
     }
@@ -299,10 +298,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
-import top.javarem.omni.chat.entity.ChatSession;
-
-import java.sql.ResultSet;
-import java.time.LocalDateTime;
+import top.javarem.omni.memory.entity.ChatSession;
 
 @Repository
 @Slf4j
@@ -315,7 +311,7 @@ public class ChatSessionRepository {
             .id(rs.getString("id"))
             .userId(rs.getString("user_id"))
             .headId(rs.getString("head_id"))
-            .createdAt(rs.getTimestamp("created_at") != null ? 
+            .createdAt(rs.getTimestamp("created_at") != null ?
                     rs.getTimestamp("created_at").toLocalDateTime() : null)
             .build();
 
@@ -324,10 +320,10 @@ public class ChatSessionRepository {
      */
     public void save(ChatSession chatSession) {
         String sql = """
-            INSERT INTO chat_session (id, user_id, head_id)
-            VALUES (?, ?, ?)
-            """;
-        jdbcTemplate.update(sql, 
+                INSERT INTO chat_session (id, user_id, head_id)
+                VALUES (?, ?, ?)
+                """;
+        jdbcTemplate.update(sql,
                 chatSession.getId(),
                 chatSession.getUserId(),
                 chatSession.getHeadId());
@@ -375,27 +371,27 @@ git commit -m "feat(chat): add repository layer for chat_memory"
 ```java
 package top.javarem.omni.chat.service;
 
-import top.javarem.omni.chat.entity.ChatMemory;
-import top.javarem.omni.chat.entity.MessageType;
+import top.javarem.omni.memory.entity.ChatMemory;
+import top.javarem.omni.memory.entity.MessageType;
 
 import java.util.List;
 
 public interface ChatMemoryService {
-    
+
     // 保存消息
-    ChatMemory saveMessage(String sessionId, MessageType type, String content, 
-                           String toolCallId, String toolName, 
+    ChatMemory saveMessage(String sessionId, MessageType type, String content,
+                           String toolCallId, String toolName,
                            Integer promptTokens, Integer completionTokens);
-    
+
     // 查询上下文
     List<ChatMemory> getContext(String sessionId);
-    
+
     // 获取当前链头
     ChatMemory getCurrentHead(String sessionId);
-    
+
     // 累计 Token
     int sumTokens(String sessionId);
-    
+
     // Undo
     void undo(String sessionId);
 }
@@ -409,11 +405,12 @@ package top.javarem.omni.chat.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import top.javarem.omni.chat.entity.ChatMemory;
-import top.javarem.omni.chat.entity.ChatSession;
-import top.javarem.omni.chat.entity.MessageType;
-import top.javarem.omni.chat.repository.ChatMemoryRepository;
-import top.javarem.omni.chat.repository.ChatSessionRepository;
+import top.javarem.omni.memory.entity.ChatMemory;
+import top.javarem.omni.memory.entity.ChatSession;
+import top.javarem.omni.memory.entity.MessageType;
+import top.javarem.omni.memory.repository.ChatMemoryRepository;
+import top.javarem.omni.memory.repository.ChatSessionRepository;
+import top.javarem.omni.memory.service.ChatMemoryService;
 
 import java.util.List;
 import java.util.UUID;
@@ -433,11 +430,11 @@ public class ChatMemoryServiceImpl implements ChatMemoryService {
         // 获取当前链头作为 parent_id
         ChatSession session = chatSessionRepository.findById(sessionId);
         String parentId = session != null ? session.getHeadId() : null;
-        
+
         // 计算 total_tokens
-        Integer totalTokens = (promptTokens != null ? promptTokens : 0) + 
-                             (completionTokens != null ? completionTokens : 0);
-        
+        Integer totalTokens = (promptTokens != null ? promptTokens : 0) +
+                (completionTokens != null ? completionTokens : 0);
+
         // 构建消息
         ChatMemory chatMemory = ChatMemory.builder()
                 .id(UUID.randomUUID().toString())
@@ -451,18 +448,18 @@ public class ChatMemoryServiceImpl implements ChatMemoryService {
                 .completionTokens(completionTokens)
                 .totalTokens(totalTokens)
                 .build();
-        
+
         // 保存
         chatMemoryRepository.save(chatMemory);
-        
+
         // 更新 session head
         if (session != null) {
             chatSessionRepository.updateHead(sessionId, chatMemory.getId());
         }
-        
-        log.debug("[ChatMemory] 保存消息 id={}, type={}, sessionId={}", 
+
+        log.debug("[ChatMemory] 保存消息 id={}, type={}, sessionId={}",
                 chatMemory.getId(), type, sessionId);
-        
+
         return chatMemory;
     }
 
@@ -495,11 +492,11 @@ public class ChatMemoryServiceImpl implements ChatMemoryService {
         if (session == null || session.getHeadId() == null) {
             return;
         }
-        
+
         ChatMemory currentHead = chatMemoryRepository.findById(session.getHeadId());
         if (currentHead != null && currentHead.getParentId() != null) {
             chatSessionRepository.updateHead(sessionId, currentHead.getParentId());
-            log.info("[ChatMemory] Undo 完成, sessionId={}, newHeadId={}", 
+            log.info("[ChatMemory] Undo 完成, sessionId={}, newHeadId={}",
                     sessionId, currentHead.getParentId());
         }
     }
@@ -511,18 +508,18 @@ public class ChatMemoryServiceImpl implements ChatMemoryService {
 ```java
 package top.javarem.omni.chat.service;
 
-import top.javarem.omni.chat.entity.ChatSession;
+import top.javarem.omni.memory.entity.ChatSession;
 
 import java.util.List;
 
 public interface ChatSessionService {
-    
+
     // 创建会话
     ChatSession createSession(String userId);
-    
+
     // 获取会话
     ChatSession getSession(String sessionId);
-    
+
     // 用户会话列表
     List<ChatSession> getUserSessions(String userId);
 }
@@ -538,10 +535,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
-import top.javarem.omni.chat.entity.ChatSession;
-import top.javarem.omni.chat.repository.ChatSessionRepository;
+import top.javarem.omni.memory.entity.ChatSession;
+import top.javarem.omni.memory.repository.ChatSessionRepository;
+import top.javarem.omni.memory.service.ChatSessionService;
 
-import java.sql.ResultSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -557,7 +554,7 @@ public class ChatSessionServiceImpl implements ChatSessionService {
             .id(rs.getString("id"))
             .userId(rs.getString("user_id"))
             .headId(rs.getString("head_id"))
-            .createdAt(rs.getTimestamp("created_at") != null ? 
+            .createdAt(rs.getTimestamp("created_at") != null ?
                     rs.getTimestamp("created_at").toLocalDateTime() : null)
             .build();
 
@@ -611,11 +608,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import top.javarem.omni.chat.entity.ChatMemory;
-import top.javarem.omni.chat.entity.ChatSession;
-import top.javarem.omni.chat.entity.MessageType;
-import top.javarem.omni.chat.repository.ChatMemoryRepository;
-import top.javarem.omni.chat.repository.ChatSessionRepository;
+import top.javarem.omni.memory.entity.ChatMemory;
+import top.javarem.omni.memory.entity.ChatSession;
+import top.javarem.omni.memory.entity.MessageType;
+import top.javarem.omni.memory.repository.ChatMemoryRepository;
+import top.javarem.omni.memory.repository.ChatSessionRepository;
+import top.javarem.omni.memory.service.ContextCollapseService;
 
 import java.util.UUID;
 
@@ -661,7 +659,7 @@ public class ContextCollapseServiceImpl implements ContextCollapseService {
         chatMemoryRepository.save(collapseNode);
         chatSessionRepository.updateHead(sessionId, collapseNode.getId());
 
-        log.info("[ContextCollapse] 折叠完成, sessionId={}, collapseId={}, tokensThreshold={}", 
+        log.info("[ContextCollapse] 折叠完成, sessionId={}, collapseId={}, tokensThreshold={}",
                 sessionId, collapseNode.getId(), tokenThreshold);
     }
 }
@@ -698,9 +696,9 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.model.chat.metadata.ChatCompletionUsage;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
-import top.javarem.omni.chat.entity.MessageType;
-import top.javarem.omni.chat.service.ChatMemoryService;
-import top.javarem.omni.chat.service.ChatSessionService;
+import top.javarem.omni.memory.entity.MessageType;
+import top.javarem.omni.memory.service.ChatMemoryService;
+import top.javarem.omni.memory.service.ChatSessionService;
 
 import java.util.List;
 import java.util.Map;
@@ -731,23 +729,23 @@ public class ChatMemoryAdvisor implements ChatClientAdvisor {
     // ==================== Around Advisor (支持 before/after) ====================
 
     @Override
-    public ChatClientResponse aroundCall(AroundAdvisorChain chain, 
+    public ChatClientResponse aroundCall(AroundAdvisorChain chain,
                                          Map<String, Object> attributes) {
         ChatClientRequest request = chain.request();
         ChatClientResponse response = chain.proceed(attributes);
-        
+
         // 保存用户消息 (before)
         saveUserMessage(request);
-        
+
         // 保存助手消息 (after)
         saveAssistantMessage(response, request);
-        
+
         return response;
     }
 
     @Override
     public Flux<ChatClientResponse> aroundStream(AroundAdvisorChain chain,
-                                                  Map<String, Object> attributes) {
+                                                 Map<String, Object> attributes) {
         // 流式暂不处理（等 response 完整后再保存）
         return chain.proceed(attributes)
                 .doOnNext(response -> {
@@ -764,7 +762,7 @@ public class ChatMemoryAdvisor implements ChatClientAdvisor {
         try {
             String sessionId = extractSessionId(request);
             String userId = extractUserId(request);
-            
+
             if (sessionId == null || userId == null) {
                 return;
             }
@@ -782,7 +780,7 @@ public class ChatMemoryAdvisor implements ChatClientAdvisor {
 
             for (Message msg : userMessages) {
                 String content = msg.getText();
-                chatMemoryService.saveMessage(sessionId, MessageType.user, content, 
+                chatMemoryService.saveMessage(sessionId, MessageType.user, content,
                         null, null, null, null);
             }
         } catch (Exception e) {
@@ -798,7 +796,7 @@ public class ChatMemoryAdvisor implements ChatClientAdvisor {
 
             String sessionId = extractSessionId(request);
             String userId = extractUserId(request);
-            
+
             if (sessionId == null || userId == null) {
                 return;
             }
@@ -828,7 +826,7 @@ public class ChatMemoryAdvisor implements ChatClientAdvisor {
                 // 提取 token 使用量
                 Integer promptTokens = null;
                 Integer completionTokens = null;
-                
+
                 if (response.chatResponse().getMetadata() != null) {
                     ChatCompletionUsage usage = response.chatResponse().getMetadata().getUsage();
                     if (usage != null) {
@@ -918,8 +916,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
-import top.javarem.omni.chat.entity.ChatMemory;
-import top.javarem.omni.chat.entity.MessageType;
+import top.javarem.omni.memory.entity.ChatMemory;
+import top.javarem.omni.memory.entity.MessageType;
+import top.javarem.omni.memory.entity.ChatSession;
+import top.javarem.omni.memory.repository.ChatMemoryRepository;
+import top.javarem.omni.memory.repository.ChatSessionRepository;
 
 import java.util.List;
 import java.util.UUID;
@@ -939,9 +940,9 @@ class ChatMemoryRepositoryTest {
     @Test
     void testSaveAndFind() {
         String sessionId = UUID.randomUUID().toString();
-        
+
         // 创建会话
-        sessionRepository.save(top.javarem.omni.chat.entity.ChatSession.builder()
+        sessionRepository.save(ChatSession.builder()
                 .id(sessionId)
                 .userId("test")
                 .headId(null)
@@ -983,8 +984,8 @@ class ChatMemoryRepositoryTest {
     @Test
     void testSumTokens() {
         String sessionId = UUID.randomUUID().toString();
-        
-        sessionRepository.save(top.javarem.omni.chat.entity.ChatSession.builder()
+
+        sessionRepository.save(ChatSession.builder()
                 .id(sessionId)
                 .userId("test")
                 .headId(null)
@@ -1016,12 +1017,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
-import top.javarem.omni.chat.entity.ChatMemory;
-import top.javarem.omni.chat.entity.ChatSession;
-import top.javarem.omni.chat.entity.MessageType;
+import top.javarem.omni.memory.entity.ChatMemory;
+import top.javarem.omni.memory.entity.ChatSession;
+import top.javarem.omni.memory.entity.MessageType;
+import top.javarem.omni.memory.service.ChatMemoryService;
+import top.javarem.omni.memory.service.ChatSessionService;
 
 import java.util.List;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
