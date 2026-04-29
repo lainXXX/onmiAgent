@@ -216,10 +216,10 @@ public class AgentToolConfig implements AgentTool {
                 log.info("[AgentTool] 阻塞等待任务完成: taskId={}, timeout={}ms", taskId, waitTimeout);
                 AgentResult result = record.future().get(waitTimeout, TimeUnit.MILLISECONDS);
 
-                // 清理 worktree
+                // 清理 worktree（只删物理目录，保留分支以便后续 merge）
                 String worktreePath = registry.getWorktreePath(taskId);
                 if (worktreePath != null) {
-                    worktreeManager.cleanupWorktree(taskId, true);
+                    worktreeManager.cleanupWorktree(taskId, false);  // false = 保留分支
                 }
 
                 registry.remove(taskId);
@@ -229,10 +229,10 @@ public class AgentToolConfig implements AgentTool {
                 if (record.future().isDone()) {
                     AgentResult result = record.future().get(0, TimeUnit.MILLISECONDS);
 
-                    // 清理 worktree
+                    // 清理 worktree（只删物理目录，保留分支）
                     String worktreePath = registry.getWorktreePath(taskId);
                     if (worktreePath != null) {
-                        worktreeManager.cleanupWorktree(taskId, true);
+                        worktreeManager.cleanupWorktree(taskId, false);  // false = 保留分支
                     }
 
                     registry.remove(taskId);

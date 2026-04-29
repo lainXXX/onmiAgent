@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import top.javarem.omni.model.task.TaskEntity;
-import top.javarem.omni.repository.chat.MemoryRepository;
+import top.javarem.omni.chat.repository.ChatMemoryRepository;
 import top.javarem.omni.service.task.TaskService;
 
 import java.util.List;
@@ -33,7 +33,7 @@ class TaskProgressAdvisorTest {
     private TaskService taskService;
 
     @Autowired
-    private MemoryRepository memoryRepository;
+    private ChatMemoryRepository memoryRepository;
 
     /**
      * 测试：TaskEntity统计功能
