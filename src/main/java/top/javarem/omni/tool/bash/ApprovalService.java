@@ -2,14 +2,14 @@ package top.javarem.omni.tool.bash;
 
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import top.javarem.omni.event.ApprovalCreatedEvent;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @Slf4j
@@ -20,6 +20,8 @@ public class ApprovalService {
     private static final long SCHEDULER_INTERVAL_MINUTES = 1;
 
     private final ConcurrentHashMap<String, ApprovalEntry> tickets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CompletableFuture<Boolean>> pendingFutures = new ConcurrentHashMap<>();
+    private final ApplicationEventPublisher eventPublisher;
     private final ScheduledExecutorService cleanupScheduler = Executors.newSingleThreadScheduledExecutor(
         r -> {
             Thread t = new Thread(r, "ApprovalService-Cleanup");
@@ -27,8 +29,10 @@ public class ApprovalService {
             return t;
         }
     );
+    private static final long DEFAULT_APPROVAL_TIMEOUT_SECONDS = 600; // 10 minutes
 
-    public ApprovalService() {
+    public ApprovalService(ApplicationEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
         cleanupScheduler.scheduleAtFixedRate(() -> {
             long cutoff = System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(TTL_MINUTES);
             long consumedCutoff = System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(CONSUMED_TTL_MINUTES);
@@ -36,6 +40,17 @@ public class ApprovalService {
                 ApprovalEntry entry = e.getValue();
                 if (entry.approved() == null && entry.timestamp() < cutoff) return true;
                 if (entry.approved() != null && entry.timestamp() < consumedCutoff) return true;
+                return false;
+            });
+            // 清理超时的 pending Futures（防止内存泄漏）
+            long futureCutoff = System.currentTimeMillis() - TimeUnit.SECONDS.toMillis(DEFAULT_APPROVAL_TIMEOUT_SECONDS);
+            pendingFutures.entrySet().removeIf(e -> {
+                if (e.getValue().isDone()) return true; // 已完成的清理掉
+                // 超时的标记为失败
+                if (!e.getValue().isDone()) {
+                    e.getValue().completeExceptionally(new TimeoutException("审批超时"));
+                    return true;
+                }
                 return false;
             });
         }, SCHEDULER_INTERVAL_MINUTES, SCHEDULER_INTERVAL_MINUTES, TimeUnit.MINUTES);
@@ -59,6 +74,12 @@ public class ApprovalService {
         String ticketId = UUID.randomUUID().toString();
         tickets.put(ticketId, new ApprovalEntry(normalized, null, System.currentTimeMillis()));
         log.info("[ApprovalService] Ticket created: {} cmd={}", ticketId, normalized);
+
+        // 发布审批创建事件，让 UI 监听器负责推送
+        if (eventPublisher != null) {
+            eventPublisher.publishEvent(new ApprovalCreatedEvent(this, ticketId, normalized));
+        }
+
         return new CheckResult(CheckResult.Status.PENDING, ticketId, "⏸️ 命令待审批: " + command);
     }
 
@@ -85,6 +106,9 @@ public class ApprovalService {
             return new ApprovalEntry(v.normalizedCommand(), approved, v.timestamp());
         });
 
+        // 完成等待中的 Future
+        completeApproval(ticketId, approved);
+
         log.info("[ApprovalService] Ticket {} approved={}", ticketId, approved);
         return true;
     }
@@ -107,8 +131,38 @@ public class ApprovalService {
             if (v == null) return null;
             return new ApprovalEntry(v.normalizedCommand(), true, v.timestamp());
         });
+
+        // 完成等待中的 Future
+        completeApproval(ticketId, true);
+
         log.info("[ApprovalService] Ticket {} quick-approved", ticketId);
         return true;
+    }
+
+    /**
+     * 获取待审批票根的 Future（Agent 端阻塞等待）
+     */
+    public CompletableFuture<Boolean> getApprovalFuture(String ticketId) {
+        return pendingFutures.computeIfAbsent(ticketId, id -> {
+            log.info("[ApprovalService] 【审批触发】检测到危险命令，已创建票根。TicketId: {}, 命令: {}",
+                id, tickets.get(id) != null ? tickets.get(id).normalizedCommand() : "未知");
+            return new CompletableFuture<>();
+        });
+    }
+
+    /**
+     * 完成审批 Future（内部使用或审批完成后调用）
+     */
+    public boolean completeApproval(String ticketId, boolean approved) {
+        CompletableFuture<Boolean> future = pendingFutures.remove(ticketId);
+        if (future != null) {
+            future.complete(approved);
+            log.info("[ApprovalService] 【{}】票根审批完成。TicketId: {}, Approved: {}",
+                approved ? "审批通过" : "审批拒绝", ticketId, approved);
+            return true;
+        }
+        log.debug("[ApprovalService] 无等待中的 Future: ticketId={}", ticketId);
+        return false;
     }
 
     /**

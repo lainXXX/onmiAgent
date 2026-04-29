@@ -1,14 +1,11 @@
 package top.javarem.omni.tool.bash;
 
-import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PreDestroy; // 注意：如果是 SpringBoot 2.x 请换成 javax.annotation.PreDestroy
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -22,71 +19,78 @@ import java.util.concurrent.*;
  * Bash 命令执行器
  *
  * <p>集成了安全拦截、进程注册、ProcessHandle 生命周期管理、
- * 共享线程池、字符集处理和 stderr 合并。</p>
+ * 独立的 I/O 读取无界线程池（防死锁）、字符集处理和 stderr 合并、以及智能指令加速。</p>
  */
 @Component
 @Slf4j
 public class BashExecutor {
 
-    @Autowired
-    private ProcessRegistry processRegistry;
+    private final ProcessRegistry processRegistry;
+    private final SecurityInterceptor securityInterceptor;
+    private final WorkingDirectoryManager workingDirectoryManager;
+    private final ResponseFormatter formatter;
 
-    @Autowired
-    private SecurityInterceptor securityInterceptor;
-
-    @Autowired
-    private WorkingDirectoryManager workingDirectoryManager;
-
-    @Resource
-    private ResponseFormatter formatter;
-
-    /**
-     * 默认 workspace（来自配置），当用户未指定 workspace 时使用
-     */
     @Value("${agent.working-directory:${user.dir}}")
     private String defaultWorkspace;
 
     private final ProcessTreeKiller processKiller = new ProcessTreeKiller();
 
-    /**
-     * 共享线程池，用于输出读取
-     * 替代每次执行创建新的 ExecutorService，避免资源泄漏
-     */
-    @Autowired(required = false)
-    private ThreadPoolTaskExecutor taskExecutor;
+    // 最大输出行数限制，防止执行类似 cat /dev/urandom 或超大日志导致 OOM
+    private static final int MAX_OUTPUT_LINES = 100_000;
 
-    /**
-     * 当 taskExecutor 不可用时的降级共享线程池
-     */
-    private volatile ExecutorService sharedExecutor;
+    // 审批超时时间（秒）
+    private static final long DEFAULT_APPROVAL_TIMEOUT_SECONDS = 600; // 10 分钟
 
-    private ExecutorService getOrCreateExecutor() {
-        if (taskExecutor != null) {
-            return taskExecutor.getThreadPoolExecutor();
+    // 命令默认超时（毫秒）
+    private static final long DEFAULT_COMMAND_TIMEOUT_MS = 300_000; // 5 分钟
+
+    // 专用于读取 InputStream 的独立线程池
+    private volatile ExecutorService ioReaderExecutor;
+
+    private final ApprovalService approvalService;
+
+    public BashExecutor(ProcessRegistry processRegistry,
+                        SecurityInterceptor securityInterceptor,
+                        WorkingDirectoryManager workingDirectoryManager,
+                        ResponseFormatter formatter,
+                        ApprovalService approvalService) {
+        this.processRegistry = processRegistry;
+        this.securityInterceptor = securityInterceptor;
+        this.workingDirectoryManager = workingDirectoryManager;
+        this.formatter = formatter;
+        this.approvalService = approvalService;
+    }
+
+    @PreDestroy
+    public void destroy() {
+        if (ioReaderExecutor != null) {
+            ioReaderExecutor.shutdownNow();
         }
-        if (sharedExecutor == null) {
+    }
+
+    /**
+     * 获取读流专用的隔离线程池。
+     * 【核心优化】使用 SynchronousQueue 拒绝排队，直接创建新线程读取，彻底解决输出缓冲区满导致的进程死锁。
+     */
+    private ExecutorService getIoReaderExecutor() {
+        if (ioReaderExecutor == null) {
             synchronized (this) {
-                if (sharedExecutor == null) {
-                    sharedExecutor = new ThreadPoolExecutor(
-                        2, 4, 60L, TimeUnit.SECONDS,
-                        new LinkedBlockingQueue<>(100),
-                        r -> {
-                            Thread t = new Thread(r, "bash-output-reader");
-                            t.setDaemon(true);
-                            return t;
-                        }
+                if (ioReaderExecutor == null) {
+                    ioReaderExecutor = new ThreadPoolExecutor(
+                            10, 200, 60L, TimeUnit.SECONDS,
+                            new SynchronousQueue<>(),
+                            r -> {
+                                Thread t = new Thread(r, "bash-io-reader");
+                                t.setDaemon(true);
+                                return t;
+                            }
                     );
                 }
             }
         }
-        return sharedExecutor;
+        return ioReaderExecutor;
     }
 
-    /**
-     * 解析有效的 workspace：
-     * 1. 使用传入的 userWorkspace
-     * 2. 校验是否存在且为目录，无效则降级到 defaultWorkspace
-     */
     private String resolveEffectiveWorkspace(String userWorkspace) {
         if (userWorkspace == null || userWorkspace.isBlank()) {
             return defaultWorkspace;
@@ -95,44 +99,41 @@ public class BashExecutor {
             Path path = Paths.get(userWorkspace).toAbsolutePath().normalize();
             if (!Files.exists(path) || !Files.isDirectory(path)) {
                 log.warn("[BashExecutor] 用户指定的 workspace 无效: {}, 降级到默认: {}",
-                         userWorkspace, defaultWorkspace);
+                        userWorkspace, defaultWorkspace);
                 return defaultWorkspace;
             }
             return path.toString().replace("\\", "/");
         } catch (Exception e) {
             log.warn("[BashExecutor] workspace 解析异常: {}, 降级到默认: {}",
-                     userWorkspace, defaultWorkspace);
+                    userWorkspace, defaultWorkspace);
             return defaultWorkspace;
         }
     }
 
-    /**
-     * 执行命令（同步等待结果）
-     */
     public String execute(String command, long timeoutMs, String userWorkspace) throws Exception {
         return execute(command, timeoutMs, userWorkspace, false);
     }
 
-    /**
-     * 执行命令（同步等待结果）
-     * @param acceptEdits 编辑模式：放行文件系统命令的审批
-     */
     public String execute(String command, long timeoutMs, String userWorkspace, boolean acceptEdits) throws Exception {
         String effectiveWorkspace = resolveEffectiveWorkspace(userWorkspace);
         workingDirectoryManager.syncWorkspace(effectiveWorkspace);
+
         SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace, acceptEdits);
         boolean destructiveWarning = false;
+
         switch (check.type()) {
             case DENY:
                 return formatter.formatError("安全拦截: " + check.message(), -1, command);
             case PENDING:
-                return formatter.formatPending(check.ticketId(), check.message());
+                // 阻塞等待审批结果
+                return executeWithPendingApproval(command, check.ticketId(), effectiveWorkspace);
             case WARNING:
                 destructiveWarning = true;
                 break;
             case ALLOW:
                 break;
         }
+
         String result = doExecute(command, timeoutMs, false, effectiveWorkspace);
         if (destructiveWarning) {
             return formatter.formatDestructiveWarning(command) + result;
@@ -141,11 +142,46 @@ public class BashExecutor {
     }
 
     /**
-     * 后台执行命令
+     * 阻塞等待审批完成后执行命令
      */
+    private String executeWithPendingApproval(String command, String ticketId, String effectiveWorkspace) throws Exception {
+        log.info("[BashExecutor] 【审批等待】线程已挂起等待审批。TicketId: {}, 超时时间: {}分钟, 命令: {}",
+            ticketId, DEFAULT_APPROVAL_TIMEOUT_SECONDS / 60, command);
+
+        try {
+            // 获取 Future 并阻塞等待
+            CompletableFuture<Boolean> future = approvalService.getApprovalFuture(ticketId);
+            boolean approved = future.get(DEFAULT_APPROVAL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+            if (approved) {
+                log.info("[BashExecutor] 【审批通过】收到用户批准，准备恢复命令执行。TicketId: {}, 命令: {}",
+                    ticketId, command);
+                // 审批通过，真正执行命令
+                return doExecute(command, DEFAULT_COMMAND_TIMEOUT_MS, false, effectiveWorkspace);
+            } else {
+                log.info("[BashExecutor] 【审批拒绝】用户拒绝命令执行。TicketId: {}, 命令: {}",
+                    ticketId, command);
+                return formatter.formatError("用户拒绝了命令执行: " + command, -1, command);
+            }
+        } catch (TimeoutException e) {
+            log.warn("[BashExecutor] 【审批超时】票根审批超时。TicketId: {}, 命令: {}", ticketId, command);
+            approvalService.completeApproval(ticketId, false); // 清理
+            return formatter.formatError("审批超时（10分钟），命令未执行: " + command, -1, command);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("[BashExecutor] 【审批中断】等待审批被中断。TicketId: {}, 命令: {}", ticketId, command);
+            return formatter.formatError("等待审批被中断: " + command, -1, command);
+        } catch (ExecutionException e) {
+            log.error("[BashExecutor] 【审批异常】审批过程出错。TicketId: {}, 命令: {}, 错误: {}",
+                ticketId, command, e.getMessage());
+            return formatter.formatError("审批过程出错: " + e.getMessage(), -1, command);
+        }
+    }
+
     public String executeBackground(String command, String userWorkspace) throws Exception {
         String effectiveWorkspace = resolveEffectiveWorkspace(userWorkspace);
         workingDirectoryManager.syncWorkspace(effectiveWorkspace);
+
         SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace);
         if (check.type() == SecurityInterceptor.CheckResult.Type.DENY) {
             return formatter.formatError("安全拦截: " + check.message(), -1, command);
@@ -156,45 +192,54 @@ public class BashExecutor {
         if (check.type() == SecurityInterceptor.CheckResult.Type.WARNING) {
             log.warn("[BashExecutor] Destructive command warning (background): {}", command);
         }
+
         return doExecute(command, 0, true, effectiveWorkspace);
     }
 
     private String doExecute(String command, long timeoutMs, boolean background, String effectiveWorkspace) throws Exception {
+        // 【加速优化】针对 LLM 常用的耗时命令进行静默调优
+        String optimizedCommand = optimizeCommand(command);
+
         ProcessBuilder builder = new ProcessBuilder();
-        configureProcessBuilder(builder, command);
-        // 优先使用 WorkingDirectoryManager 跟踪的目录，支持 cd 命令动态切换
+        configureProcessBuilder(builder, optimizedCommand);
+
         Path trackedDir = workingDirectoryManager.getCurrentDir();
         builder.directory(trackedDir.toFile());
-        builder.redirectErrorStream(true);
+        builder.redirectErrorStream(true); // 合并 stderr 到 stdout
 
         Process process = builder.start();
         String pid = String.valueOf(process.pid());
-        log.info("[BashExecutor] Process started: PID={} cmd={}", pid, command);
+        log.info("[BashExecutor] Process started: PID={} cmd={}", pid, optimizedCommand);
 
         if (background) {
-            ManagedProcess mp = new ManagedProcess(pid, process.toHandle(), command, "",
+            ManagedProcess mp = new ManagedProcess(pid, process.toHandle(), optimizedCommand, "",
                     Instant.now(), ManagedProcess.ProcessState.RUNNING, true);
             processRegistry.register(mp);
-            return formatter.formatBackgroundStarted(pid, command);
+            return formatter.formatBackgroundStarted(pid, optimizedCommand);
         }
 
-        ManagedProcess mp = new ManagedProcess(pid, process.toHandle(), command, "",
+        ManagedProcess mp = new ManagedProcess(pid, process.toHandle(), optimizedCommand, "",
                 Instant.now(), ManagedProcess.ProcessState.RUNNING, false);
         processRegistry.register(mp);
 
         Charset charset = detectCharset();
         StringBuilder output = new StringBuilder();
-        ExecutorService readerExecutor = getOrCreateExecutor();
+        ExecutorService readerExecutor = getIoReaderExecutor();
 
         Future<?> readerFuture = readerExecutor.submit(() -> {
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), charset))) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), charset))) {
                 String line;
+                int lineCount = 0;
                 while ((line = reader.readLine()) != null) {
-                    output.append(line).append("\n");
+                    if (lineCount < MAX_OUTPUT_LINES) {
+                        output.append(line).append("\n");
+                    } else if (lineCount == MAX_OUTPUT_LINES) {
+                        output.append("\n... [输出超过限制，已截断截取前 ").append(MAX_OUTPUT_LINES).append(" 行] ...\n");
+                    }
+                    lineCount++;
                 }
             } catch (Exception e) {
-                log.warn("[BashExecutor] Output reading failed", e);
+                log.warn("[BashExecutor] Output reading failed for PID={}", pid, e);
             }
         });
 
@@ -202,26 +247,26 @@ public class BashExecutor {
         String rawOutput = output.toString();
 
         if (!finished) {
+            log.warn("[BashExecutor] Command timeout: {}ms cmd={}", timeoutMs, optimizedCommand);
             processKiller.kill(process);
             readerFuture.cancel(true);
             processRegistry.kill(pid);
-            log.warn("[BashExecutor] Command timeout: {}ms cmd={}", timeoutMs, command);
-            // 超时时也跟踪目录（命令可能改变了目录）
             workingDirectoryManager.trackAndValidate(rawOutput, null);
             return formatter.formatTimeout(rawOutput, timeoutMs);
         }
 
         try {
-            readerFuture.get(1, TimeUnit.SECONDS);
+            // 确保流彻底读取完毕
+            readerFuture.get(2, TimeUnit.SECONDS);
         } catch (TimeoutException | ExecutionException e) {
-            // Ignore — process already done
+            log.warn("[BashExecutor] Reader thread took too long to close, ignoring.", e);
         }
 
         processRegistry.unregister(pid);
 
-        // 跟踪命令执行后的工作目录变化（成功或失败都要跟踪）
+        // 跟踪工作目录变化
         Path newDir = workingDirectoryManager.trackAndValidate(rawOutput, null);
-        if (!newDir.equals(workingDirectoryManager.getCurrentDir())) {
+        if (!newDir.equals(trackedDir)) {
             log.info("[BashExecutor] 工作目录切换: -> {}", newDir);
         }
 
@@ -229,8 +274,21 @@ public class BashExecutor {
         if (exitCode == 0) {
             return formatter.formatSuccess(rawOutput);
         } else {
-            return formatter.formatError(rawOutput, exitCode, command);
+            return formatter.formatError(rawOutput, exitCode, optimizedCommand);
         }
+    }
+
+    /**
+     * 智能优化 LLM 生成的命令，避免无意义的性能损耗
+     */
+    private String optimizeCommand(String command) {
+        String optimized = command;
+        // 如果使用了 PowerShell，默认强制追加 -NoProfile -NonInteractive 以避免加载配置文件导致巨慢
+        if (optimized.toLowerCase().contains("powershell") && !optimized.toLowerCase().contains("-noprofile")) {
+            optimized = optimized.replaceAll("(?i)(powershell(?:\\.exe)?)\\s+(-command|-c)\\s+",
+                    "$1 -NoProfile -NonInteractive -Command ");
+        }
+        return optimized;
     }
 
     private void configureProcessBuilder(ProcessBuilder builder, String command) {
@@ -243,13 +301,13 @@ public class BashExecutor {
 
     private Charset detectCharset() {
         Charset detected = Charset.defaultCharset();
-        if (StandardCharsets.UTF_8.equals(detected) || StandardCharsets.ISO_8859_1.equals(detected)) {
-            return detected;
+        if (System.getProperty("os.name").toLowerCase().contains("win")) {
+            if (!StandardCharsets.UTF_8.equals(detected)) {
+                try {
+                    return Charset.forName("GBK");
+                } catch (Exception ignored) {}
+            }
         }
-        try {
-            return StandardCharsets.UTF_8;
-        } catch (Exception e) {
-            return detected;
-        }
+        return detected;
     }
 }
