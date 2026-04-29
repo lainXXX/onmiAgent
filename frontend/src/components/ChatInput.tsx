@@ -6,9 +6,11 @@ interface ChatInputProps {
   disabled?: boolean;
   workspace?: string;
   onWorkspaceChange?: (ws: string) => void;
+  bypassApproval?: boolean;
+  onBypassApprovalChange?: (enabled: boolean) => void;
 }
 
-export function ChatInput({ onSend, disabled, workspace = '', onWorkspaceChange }: ChatInputProps) {
+export function ChatInput({ onSend, disabled, workspace = '', onWorkspaceChange, bypassApproval = false, onBypassApprovalChange }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [showWorkspace, setShowWorkspace] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -129,6 +131,29 @@ export function ChatInput({ onSend, disabled, workspace = '', onWorkspaceChange 
                   <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
+              </button>
+
+              {/* Bypass Approval Toggle */}
+              <button
+                type="button"
+                onClick={() => onBypassApprovalChange?.(!bypassApproval)}
+                className={`p-1.5 rounded transition-colors ${
+                  bypassApproval
+                    ? 'text-amber-400 hover:text-amber-300 bg-amber-500/20'
+                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                }`}
+                title={bypassApproval ? '已开启免审批模式（危险命令将自动执行）' : '开启免审批模式（危险命令无需审批）'}
+              >
+                {bypassApproval ? (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 11v4m4-4h4m-4 0h4m-5-4h1a2 2 0 012 2v8a2 2 0 01-2 2H7a2 2 0 01-2-2v-4a2 2 0 012-2h6z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                )}
               </button>
             </div>
             <button

@@ -110,7 +110,7 @@ public class BashExecutor {
      * 执行命令（同步等待结果）
      */
     public String execute(String command, long timeoutMs, String userWorkspace) throws Exception {
-        return execute(command, timeoutMs, userWorkspace, false);
+        return execute(command, timeoutMs, userWorkspace, false, false);
     }
 
     /**
@@ -118,9 +118,18 @@ public class BashExecutor {
      * @param acceptEdits 编辑模式：放行文件系统命令的审批
      */
     public String execute(String command, long timeoutMs, String userWorkspace, boolean acceptEdits) throws Exception {
+        return execute(command, timeoutMs, userWorkspace, acceptEdits, false);
+    }
+
+    /**
+     * 执行命令（同步等待结果）
+     * @param acceptEdits 编辑模式：放行文件系统命令的审批
+     * @param bypassApproval 跳过审批模式：放行 REQUIRE_APPROVAL 级别的命令
+     */
+    public String execute(String command, long timeoutMs, String userWorkspace, boolean acceptEdits, boolean bypassApproval) throws Exception {
         String effectiveWorkspace = resolveEffectiveWorkspace(userWorkspace);
         workingDirectoryManager.syncWorkspace(effectiveWorkspace);
-        SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace, acceptEdits);
+        SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace, acceptEdits, bypassApproval);
         boolean destructiveWarning = false;
         switch (check.type()) {
             case DENY:
@@ -137,6 +146,7 @@ public class BashExecutor {
         if (destructiveWarning) {
             return formatter.formatDestructiveWarning(command) + result;
         }
+        // bypassed 命令在日志中已有记录，此处可扩展前端反馈
         return result;
     }
 
@@ -144,9 +154,17 @@ public class BashExecutor {
      * 后台执行命令
      */
     public String executeBackground(String command, String userWorkspace) throws Exception {
+        return executeBackground(command, userWorkspace, false);
+    }
+
+    /**
+     * 后台执行命令
+     * @param bypassApproval 跳过审批模式
+     */
+    public String executeBackground(String command, String userWorkspace, boolean bypassApproval) throws Exception {
         String effectiveWorkspace = resolveEffectiveWorkspace(userWorkspace);
         workingDirectoryManager.syncWorkspace(effectiveWorkspace);
-        SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace);
+        SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace, bypassApproval);
         if (check.type() == SecurityInterceptor.CheckResult.Type.DENY) {
             return formatter.formatError("安全拦截: " + check.message(), -1, command);
         }

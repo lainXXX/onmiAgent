@@ -12,6 +12,8 @@ export interface Conversation {
   title: string;
   messages: Message[];
   createdAt: string;
+  workspace?: string;
+  bypassApproval?: boolean;
 }
 
 export interface Question {
@@ -38,6 +40,7 @@ export interface ChatRequest {
   question: string;
   sessionId: string;
   workspace?: string;
+  bypassApproval?: boolean;
 }
 
 export interface ChatStep {
