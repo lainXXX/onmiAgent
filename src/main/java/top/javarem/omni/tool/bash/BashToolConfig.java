@@ -157,12 +157,13 @@ public class BashToolConfig implements AgentTool {
             ToolContext toolContext
             ) {
 
-        // 从 ToolContext 获取 workspace 和 acceptEdits（由 ChatController 设置）
+        // 从 ToolContext 获取 workspace、acceptEdits 和 bypassApproval（由 ChatController 设置）
         String workspace = extractWorkspace(toolContext);
         boolean acceptEdits = extractAcceptEdits(toolContext);
+        boolean bypassApproval = extractBypassApproval(toolContext);
 
-        log.info("[BashToolConfig] 执行命令: {} | workspace: {} | 描述: {} | 后台: {} | acceptEdits: {}",
-                command, workspace, description, runInBackground, acceptEdits);
+        log.info("[BashToolConfig] 执行命令: {} | workspace: {} | 描述: {} | 后台: {} | acceptEdits: {} | bypassApproval: {}",
+                command, workspace, description, runInBackground, acceptEdits, bypassApproval);
 
         // 1. 参数校验
         if (command == null || command.trim().isEmpty()) {
@@ -181,9 +182,9 @@ public class BashToolConfig implements AgentTool {
         // 4. 执行命令
         try {
             if (Boolean.TRUE.equals(runInBackground)) {
-                return executor.executeBackground(command, workspace);
+                return executor.executeBackground(command, workspace, bypassApproval);
             }
-            return executor.execute(command, timeoutMs, workspace, acceptEdits);
+            return executor.execute(command, timeoutMs, workspace, acceptEdits, bypassApproval);
         } catch (Exception e) {
             log.error("[BashToolConfig] 执行异常: {}", e.getMessage(), e);
             return "❌ 命令执行异常: " + e.getMessage();
@@ -212,6 +213,18 @@ public class BashToolConfig implements AgentTool {
         if (acceptEditsObj != null) {
             return Boolean.TRUE.equals(acceptEditsObj) ||
                    "true".equalsIgnoreCase(acceptEditsObj.toString());
+        }
+        return false;
+    }
+
+    private boolean extractBypassApproval(ToolContext toolContext) {
+        if (toolContext == null || toolContext.getContext() == null) {
+            return false;
+        }
+        Object bypassObj = toolContext.getContext().get(AdvisorContextConstants.BYPASS_APPROVAL);
+        if (bypassObj != null) {
+            return Boolean.TRUE.equals(bypassObj) ||
+                   "true".equalsIgnoreCase(bypassObj.toString());
         }
         return false;
     }

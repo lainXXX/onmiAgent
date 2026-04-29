@@ -13,7 +13,6 @@ public class SecurityInterceptor {
     private final PathNormalizer pathNormalizer;
     private final ApprovalService approvalService;
 
-    // 添加白名单正则：允许安全的基础命令及其附带的重定向/参数
     private static final Pattern SAFE_PROBE_PATTERN = Pattern.compile(
             "^(cd|pwd|dir|ls|node -v|node --version|npm -v|npm --version|npm config list|test -.*|powershell -Command \"Test-Path.*).*$",
             Pattern.CASE_INSENSITIVE
@@ -31,12 +30,12 @@ public class SecurityInterceptor {
     public record CheckResult(Type type, String ticketId, String message, boolean bypassed) {
         public enum Type { ALLOW, DENY, PENDING, WARNING }
 
-        public static CheckResult allow(boolean bypassed) {
-            return new CheckResult(Type.ALLOW, null, bypassed ? "自动放行（免审批模式）" : "命令允许执行", bypassed);
+        public static CheckResult allow() {
+            return new CheckResult(Type.ALLOW, null, "命令允许执行", false);
         }
 
-        public static CheckResult allow() {
-            return allow(false);
+        public static CheckResult allow(boolean bypassed) {
+            return new CheckResult(Type.ALLOW, null, bypassed ? "自动放行（免审批模式）" : "命令允许执行", bypassed);
         }
 
         public static CheckResult deny(String message) {
@@ -52,19 +51,34 @@ public class SecurityInterceptor {
         }
     }
 
-    public CheckResult check(String command) {
-        return check(command, null, false);
-    }
-
-    public CheckResult check(String command, String workspace) {
-        return check(command, workspace, false);
+    /**
+     * 仅 bypassApproval 参数的重载
+     */
+    public CheckResult check(String command, boolean bypassApproval) {
+        return check(command, null, false, bypassApproval);
     }
 
     /**
-     * 带 workspace 和 acceptEdits 参数的安全检查
-     * @param acceptEdits true = 编辑模式，放行文件系统命令（不拦截审批）
+     * 兼容旧签名（bypassApproval 默认为 false）
      */
+    public CheckResult check(String command) {
+        return check(command, null, false, false);
+    }
+
+    public CheckResult check(String command, String workspace) {
+        return check(command, workspace, false, false);
+    }
+
     public CheckResult check(String command, String workspace, boolean acceptEdits) {
+        return check(command, workspace, acceptEdits, false);
+    }
+
+    /**
+     * 带完整参数的安全检查
+     * @param acceptEdits 编辑模式，放行文件系统命令（不拦截审批）
+     * @param bypassApproval 跳过审批模式，放行 REQUIRE_APPROVAL 级别的命令
+     */
+    public CheckResult check(String command, String workspace, boolean acceptEdits, boolean bypassApproval) {
         if (command == null || command.isBlank()) {
             return CheckResult.deny("命令不能为空");
         }
@@ -97,6 +111,11 @@ public class SecurityInterceptor {
         if (patternResult == DangerousPatternValidator.Result.REQUIRE_APPROVAL) {
             if (acceptEdits && isFileSystemCommand(command)) {
                 log.info("[SecurityInterceptor] acceptEdits bypass for filesystem command: {}", command);
+                return CheckResult.allow();
+            }
+            // bypassApproval 模式下，放行 REQUIRE_APPROVAL 级别的命令
+            if (bypassApproval) {
+                log.warn("[Bypass] Command '{}' requires approval, but was bypassed by user session.", command);
                 return CheckResult.allow(true);
             }
             return requireApproval(command, "⚠️ 危险命令（需用户审批）: " + command);
@@ -109,34 +128,24 @@ public class SecurityInterceptor {
         return CheckResult.allow();
     }
 
-    /**
-     * 判断是否为安全的探测类命令
-     */
     private boolean isSafeProbeCommand(String command) {
         return SAFE_PROBE_PATTERN.matcher(command.trim()).matches();
     }
 
-    /**
-     * 判断是否为文件系统操作命令（acceptEdits 模式下可自动放行）
-     */
     private boolean isFileSystemCommand(String command) {
         if (command == null || command.isBlank()) return false;
         String lower = command.trim().toLowerCase();
-        // 补充常用的查看和基础操作命令
         return lower.startsWith("mkdir ") || lower.startsWith("touch ") ||
-                lower.startsWith("rm ") || lower.startsWith("cp ") ||
-                lower.startsWith("mv ") || lower.startsWith("chmod ") ||
-                lower.startsWith("chown ") || lower.startsWith("ln ") ||
-                lower.startsWith("cat ") || lower.startsWith("echo ") ||
-                lower.startsWith("tee ") || lower.startsWith("sed ") ||
-                lower.startsWith("awk ") || lower.startsWith("find ") ||
-                lower.startsWith("ls ") || lower.startsWith("grep ") ||
-                lower.startsWith("head ") || lower.startsWith("tail ");
+               lower.startsWith("rm ") || lower.startsWith("cp ") ||
+               lower.startsWith("mv ") || lower.startsWith("chmod ") ||
+               lower.startsWith("chown ") || lower.startsWith("ln ") ||
+               lower.startsWith("cat ") || lower.startsWith("echo ") ||
+               lower.startsWith("tee ") || lower.startsWith("sed ") ||
+               lower.startsWith("awk ") || lower.startsWith("find ") ||
+               lower.startsWith("ls ") || lower.startsWith("grep ") ||
+               lower.startsWith("head ") || lower.startsWith("tail ");
     }
 
-    /**
-     * 创建待审批票根
-     */
     private CheckResult requireApproval(String command, String message) {
         if (approvalService == null) {
             return CheckResult.deny(

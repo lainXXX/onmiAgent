@@ -16,6 +16,12 @@ public final class AdvisorContextConstants {
     public static final String WORKSPACE = "workspace";
 
     /**
+     * 跳过危险命令审批模式
+     * 当为 true 时，REQUIRE_APPROVAL 级别的命令将直接放行
+     */
+    public static final String BYPASS_APPROVAL = "bypass_approval";
+
+    /**
      * Read 工具的 dedup 状态存储
      * Key: 文件路径, Value: ReadState
      */

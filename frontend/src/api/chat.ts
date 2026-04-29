@@ -59,12 +59,13 @@ export interface StreamEvent {
 export async function* streamChat(
   question: string,
   sessionId: string,
-  workspace?: string
+  workspace?: string,
+  bypassApproval?: boolean
 ): AsyncGenerator<StreamEvent, void, unknown> {
   const response = await fetch(`${API_BASE}/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, sessionId, workspace } satisfies ChatRequest),
+    body: JSON.stringify({ question, sessionId, workspace, bypassApproval } satisfies ChatRequest),
   });
 
   if (!response.ok) {

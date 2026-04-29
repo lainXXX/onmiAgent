@@ -24,6 +24,7 @@ export function App() {
   const [workspace, setWorkspace] = useState<string>(() => {
     return localStorage.getItem('omni-workspace') || '';
   });
+  const [bypassApproval, setBypassApproval] = useState<boolean>(false);
   const [pendingQuestion, setPendingQuestion] = useState<{
     questionId: string;
     questions: Question[];
@@ -130,6 +131,15 @@ export function App() {
     }
   }, [workspace]);
 
+  // Persist bypassApproval to Conversation
+  useEffect(() => {
+    if (activeId !== null) {
+      setConversations((convs) =>
+        convs.map((c) => (c.id === activeId ? { ...c, bypassApproval } : c))
+      );
+    }
+  }, [bypassApproval, activeId]);
+
   const handleNewChat = () => {
     const newConv: Conversation = {
       id: Date.now(),
@@ -137,10 +147,12 @@ export function App() {
       title: 'New Chat',
       messages: [],
       createdAt: new Date().toISOString(),
+      bypassApproval: false,
     };
     setConversations((prev) => [newConv, ...prev]);
     setActiveId(newConv.id);
     setMessages([]);
+    setBypassApproval(false);
     setPendingQuestion(null);
   };
 
@@ -149,6 +161,8 @@ export function App() {
     if (conv) {
       setActiveId(id);
       setMessages(conv.messages);
+      setBypassApproval(conv.bypassApproval ?? false);
+      setWorkspace(conv.workspace ?? '');
       setPendingQuestion(null);
     }
   };
@@ -214,7 +228,7 @@ export function App() {
       const blocksLocal: ChatStep[] = [];
       setStreamingBlocks(blocksLocal);
 
-      for await (const event of streamChat(text, activeConversation.sessionId, workspace)) {
+      for await (const event of streamChat(text, activeConversation.sessionId, workspace, bypassApproval)) {
         if (event.type === 'ask-user-question') {
           setIsStreaming(false);
           setPendingQuestion({
@@ -493,6 +507,8 @@ export function App() {
           disabled={isStreaming || !!pendingApproval}
           workspace={workspace}
           onWorkspaceChange={setWorkspace}
+          bypassApproval={bypassApproval}
+          onBypassApprovalChange={setBypassApproval}
         />
       </main>
 

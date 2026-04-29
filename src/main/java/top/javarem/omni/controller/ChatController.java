@@ -47,11 +47,13 @@ public class ChatController {
                             .param(AdvisorContextConstants.ENABLE_SKILL, true)
                             .param(AdvisorContextConstants.USER_ID, "zzw")
                             .param(AdvisorContextConstants.WORKSPACE, request.getWorkspace())
+                            .param(AdvisorContextConstants.BYPASS_APPROVAL, Boolean.TRUE.equals(request.getBypassApproval()))
                     )
                     .toolContext(new java.util.HashMap<>(Map.of(
                             ChatMemory.CONVERSATION_ID, request.getSessionId(),
                             AdvisorContextConstants.USER_ID, "zzw",
-                            AdvisorContextConstants.WORKSPACE, request.getWorkspace() != null ? request.getWorkspace() : "")))
+                            AdvisorContextConstants.WORKSPACE, request.getWorkspace() != null ? request.getWorkspace() : "",
+                            AdvisorContextConstants.BYPASS_APPROVAL, Boolean.TRUE.equals(request.getBypassApproval()))))
                     .call()
                     .content();
             return response;
@@ -82,11 +84,13 @@ public class ChatController {
                             .param(AdvisorContextConstants.ENABLE_SKILL, true)
                             .param(AdvisorContextConstants.USER_ID, "zzw")
                             .param(AdvisorContextConstants.WORKSPACE, request.getWorkspace())
+                            .param(AdvisorContextConstants.BYPASS_APPROVAL, Boolean.TRUE.equals(request.getBypassApproval()))
                     )
                     .toolContext(new java.util.HashMap<>(Map.of(
                             ChatMemory.CONVERSATION_ID, request.getSessionId(),
                             AdvisorContextConstants.USER_ID, "zzw",
-                            AdvisorContextConstants.WORKSPACE, request.getWorkspace() != null ? request.getWorkspace() : "")))
+                            AdvisorContextConstants.WORKSPACE, request.getWorkspace() != null ? request.getWorkspace() : "",
+                            AdvisorContextConstants.BYPASS_APPROVAL, Boolean.TRUE.equals(request.getBypassApproval()))))
                     .stream()
                     .chatResponse()
                     .filter(response -> response.getResult() != null && response.getResult().getOutput() != null)
