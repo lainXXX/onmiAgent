@@ -38,27 +38,20 @@ public class BashExecutor {
     // 最大输出行数限制，防止执行类似 cat /dev/urandom 或超大日志导致 OOM
     private static final int MAX_OUTPUT_LINES = 100_000;
 
-    // 审批超时时间（秒）
-    private static final long DEFAULT_APPROVAL_TIMEOUT_SECONDS = 600; // 10 分钟
-
     // 命令默认超时（毫秒）
     private static final long DEFAULT_COMMAND_TIMEOUT_MS = 300_000; // 5 分钟
 
     // 专用于读取 InputStream 的独立线程池
     private volatile ExecutorService ioReaderExecutor;
 
-    private final ApprovalService approvalService;
-
     public BashExecutor(ProcessRegistry processRegistry,
                         SecurityInterceptor securityInterceptor,
                         WorkingDirectoryManager workingDirectoryManager,
-                        ResponseFormatter formatter,
-                        ApprovalService approvalService) {
+                        ResponseFormatter formatter) {
         this.processRegistry = processRegistry;
         this.securityInterceptor = securityInterceptor;
         this.workingDirectoryManager = workingDirectoryManager;
         this.formatter = formatter;
-        this.approvalService = approvalService;
     }
 
     @PreDestroy
@@ -111,34 +104,28 @@ public class BashExecutor {
     }
 
     public String execute(String command, long timeoutMs, String userWorkspace) throws Exception {
-        return execute(command, timeoutMs, userWorkspace, false, false);
-    }
-
-    public String execute(String command, long timeoutMs, String userWorkspace, boolean acceptEdits) throws Exception {
-        return execute(command, timeoutMs, userWorkspace, acceptEdits, false);
+        return execute(command, timeoutMs, userWorkspace, false);
     }
 
     /**
      * 执行命令（同步等待结果）
-     * @param acceptEdits 编辑模式：放行文件系统命令的审批
-     * @param bypassApproval 跳过审批模式：放行 REQUIRE_APPROVAL 级别的命令
+     * @param acceptEdits 编辑模式：放行文件系统命令
      */
-    public String execute(String command, long timeoutMs, String userWorkspace, boolean acceptEdits, boolean bypassApproval) throws Exception {
+    public String execute(String command, long timeoutMs, String userWorkspace, boolean acceptEdits) throws Exception {
         String effectiveWorkspace = resolveEffectiveWorkspace(userWorkspace);
         workingDirectoryManager.syncWorkspace(effectiveWorkspace);
-        SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace, acceptEdits, bypassApproval);
+        SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace, acceptEdits);
         boolean destructiveWarning = false;
 
         switch (check.type()) {
             case DENY:
                 return formatter.formatError("安全拦截: " + check.message(), -1, command);
-            case PENDING:
-                // 阻塞等待审批结果
-                return executeWithPendingApproval(command, check.ticketId(), effectiveWorkspace);
             case WARNING:
                 destructiveWarning = true;
                 break;
             case ALLOW:
+                break;
+            default:
                 break;
         }
 
@@ -146,64 +133,15 @@ public class BashExecutor {
         if (destructiveWarning) {
             return formatter.formatDestructiveWarning(command) + result;
         }
-        // bypassed 命令在日志中已有记录，此处可扩展前端反馈
         return result;
     }
 
-    /**
-     * 阻塞等待审批完成后执行命令
-     */
-    private String executeWithPendingApproval(String command, String ticketId, String effectiveWorkspace) throws Exception {
-        log.info("[BashExecutor] 【审批等待】线程已挂起等待审批。TicketId: {}, 超时时间: {}分钟, 命令: {}",
-            ticketId, DEFAULT_APPROVAL_TIMEOUT_SECONDS / 60, command);
-
-        try {
-            // 获取 Future 并阻塞等待
-            CompletableFuture<Boolean> future = approvalService.getApprovalFuture(ticketId);
-            boolean approved = future.get(DEFAULT_APPROVAL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-
-            if (approved) {
-                log.info("[BashExecutor] 【审批通过】收到用户批准，准备恢复命令执行。TicketId: {}, 命令: {}",
-                    ticketId, command);
-                // 审批通过，真正执行命令
-                return doExecute(command, DEFAULT_COMMAND_TIMEOUT_MS, false, effectiveWorkspace);
-            } else {
-                log.info("[BashExecutor] 【审批拒绝】用户拒绝命令执行。TicketId: {}, 命令: {}",
-                    ticketId, command);
-                return formatter.formatError("用户拒绝了命令执行: " + command, -1, command);
-            }
-        } catch (TimeoutException e) {
-            log.warn("[BashExecutor] 【审批超时】票根审批超时。TicketId: {}, 命令: {}", ticketId, command);
-            approvalService.completeApproval(ticketId, false); // 清理
-            return formatter.formatError("审批超时（10分钟），命令未执行: " + command, -1, command);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.warn("[BashExecutor] 【审批中断】等待审批被中断。TicketId: {}, 命令: {}", ticketId, command);
-            return formatter.formatError("等待审批被中断: " + command, -1, command);
-        } catch (ExecutionException e) {
-            log.error("[BashExecutor] 【审批异常】审批过程出错。TicketId: {}, 命令: {}, 错误: {}",
-                ticketId, command, e.getMessage());
-            return formatter.formatError("审批过程出错: " + e.getMessage(), -1, command);
-        }
-    }
-
     public String executeBackground(String command, String userWorkspace) throws Exception {
-        return executeBackground(command, userWorkspace, false);
-    }
-
-    /**
-     * 后台执行命令
-     * @param bypassApproval 跳过审批模式
-     */
-    public String executeBackground(String command, String userWorkspace, boolean bypassApproval) throws Exception {
         String effectiveWorkspace = resolveEffectiveWorkspace(userWorkspace);
         workingDirectoryManager.syncWorkspace(effectiveWorkspace);
-        SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace, bypassApproval);
+        SecurityInterceptor.CheckResult check = securityInterceptor.check(command, effectiveWorkspace);
         if (check.type() == SecurityInterceptor.CheckResult.Type.DENY) {
             return formatter.formatError("安全拦截: " + check.message(), -1, command);
-        }
-        if (check.type() == SecurityInterceptor.CheckResult.Type.PENDING) {
-            return formatter.formatPending(check.ticketId(), check.message());
         }
         if (check.type() == SecurityInterceptor.CheckResult.Type.WARNING) {
             log.warn("[BashExecutor] Destructive command warning (background): {}", command);
