@@ -49,8 +49,6 @@ public class AiConfig {
     @Bean
     public ChatClient anthropicChatClient(AnthropicChatModel anthropicChatModel,
                                           MessageFormatAdvisor messageFormatAdvisor,
-                                          ChatMemoryAdvisor chatMemoryAdvisor,
-
                                           LifecycleToolCallAdvisor lifecycleToolCallAdvisor,
                                           TaskProgressAdvisor taskProgressAdvisor,
                                           RetryAdvisor retryAdvisor
@@ -66,7 +64,6 @@ public class AiConfig {
 //                        skillActivationAdvisor,
                         // 4. 重排消息格式并修正角色顺序
                         messageFormatAdvisor,
-                        chatMemoryAdvisor,
                         lifecycleToolCallAdvisor,
                         taskProgressAdvisor,
                         retryAdvisor
@@ -81,7 +78,6 @@ public class AiConfig {
     @Primary
     public ChatClient openAiChatClient(OpenAiChatModel openAiChatModel,
                                        MessageFormatAdvisor messageFormatAdvisor,
-                                       ChatMemoryAdvisor chatMemoryAdvisor,
                                        LifecycleToolCallAdvisor lifecycleToolCallAdvisor,
                                        TaskProgressAdvisor taskProgressAdvisor,
                                        RetryAdvisor retryAdvisor
@@ -98,7 +94,6 @@ public class AiConfig {
 //                        skillActivationAdvisor,
                         // 4. 重排消息格式并修正角色顺序
                         messageFormatAdvisor,
-                        chatMemoryAdvisor,
                         lifecycleToolCallAdvisor,
                         taskProgressAdvisor,
                         retryAdvisor
