@@ -14,6 +14,12 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, on
   const today = new Date().toDateString();
   const yesterday = new Date(Date.now() - 86400000).toDateString();
 
+  const [expandedGroups, setExpandedGroups] = useState({
+    today: true,
+    yesterday: true,
+    older: true,
+  });
+
   const grouped = conversations.reduce(
     (acc, conv) => {
       const date = new Date(conv.createdAt).toDateString();
@@ -24,6 +30,45 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, on
     },
     { today: [] as Conversation[], yesterday: [] as Conversation[], older: [] as Conversation[] }
   );
+
+  const toggleGroup = (group: 'today' | 'yesterday' | 'older') => {
+    setExpandedGroups((prev) => ({ ...prev, [group]: !prev[group] }));
+  };
+
+  const GroupSection = ({ title, convs, groupKey }: { title: string; convs: Conversation[]; groupKey: 'today' | 'yesterday' | 'older' }) => {
+    if (convs.length === 0) return null;
+    const isExpanded = expandedGroups[groupKey];
+
+    return (
+      <div className="mb-4">
+        <button
+          onClick={() => toggleGroup(groupKey)}
+          className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest hover:text-zinc-400 transition-colors"
+        >
+          <svg
+            className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          {title} ({convs.length})
+        </button>
+        {isExpanded && convs.map((conv) => (
+          <ConversationItem
+            key={conv.id}
+            conv={conv}
+            isActive={conv.id === activeId}
+            onClick={() => onSelect(conv.id)}
+            onDelete={() => onDelete(conv.id)}
+            onRename={(title) => onRename(conv.id, title)}
+          />
+        ))}
+      </div>
+    );
+  };
 
   return (
     <aside className="w-64 md:w-72 lg:w-64 bg-zinc-950 border-r border-zinc-800 flex flex-col h-full max-w-[85vw] md:max-w-[320px]">
@@ -41,54 +86,10 @@ export function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, on
       </div>
 
       {/* Conversation List */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {grouped.today.length > 0 && (
-          <div className="mb-4">
-            <div className="px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Today</div>
-            {grouped.today.map((conv) => (
-              <ConversationItem
-                key={conv.id}
-                conv={conv}
-                isActive={conv.id === activeId}
-                onClick={() => onSelect(conv.id)}
-                onDelete={() => onDelete(conv.id)}
-                onRename={(title) => onRename(conv.id, title)}
-              />
-            ))}
-          </div>
-        )}
-
-        {grouped.yesterday.length > 0 && (
-          <div className="mb-4">
-            <div className="px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Yesterday</div>
-            {grouped.yesterday.map((conv) => (
-              <ConversationItem
-                key={conv.id}
-                conv={conv}
-                isActive={conv.id === activeId}
-                onClick={() => onSelect(conv.id)}
-                onDelete={() => onDelete(conv.id)}
-                onRename={(title) => onRename(conv.id, title)}
-              />
-            ))}
-          </div>
-        )}
-
-        {grouped.older.length > 0 && (
-          <div className="mb-4">
-            <div className="px-3 py-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Older</div>
-            {grouped.older.map((conv) => (
-              <ConversationItem
-                key={conv.id}
-                conv={conv}
-                isActive={conv.id === activeId}
-                onClick={() => onSelect(conv.id)}
-                onDelete={() => onDelete(conv.id)}
-                onRename={(title) => onRename(conv.id, title)}
-              />
-            ))}
-          </div>
-        )}
+      <div className="flex-1 overflow-y-auto p-2">
+        <GroupSection title="Today" convs={grouped.today} groupKey="today" />
+        <GroupSection title="Yesterday" convs={grouped.yesterday} groupKey="yesterday" />
+        <GroupSection title="Older" convs={grouped.older} groupKey="older" />
       </div>
     </aside>
   );
