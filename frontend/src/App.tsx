@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { ToolsSidebar } from './components/ToolsSidebar';
 import { ChatMessage } from './components/ChatMessage';
@@ -6,16 +7,21 @@ import { ChatInput } from './components/ChatInput';
 import { QuestionInline } from './components/QuestionInline';
 import { CommandApprovalInline } from './components/CommandApprovalInline';
 import { streamChat, checkPendingQuestions, connectApprovalEvents } from './api/chat';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { PrivateRoute } from './components/PrivateRoute';
+import { AuthRoute } from './components/AuthRoute';
+import { LoginPage } from './pages/LoginPage';
+import { RegisterPage } from './pages/RegisterPage';
 import type { Conversation, Message, Question, ChatStep } from './types';
 
-export function App() {
+function ChatPage() {
+  const { user, logout } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => {
-    // Default to false on mobile, true on desktop
     if (typeof window !== 'undefined') {
       return window.innerWidth >= 1024;
     }
@@ -43,7 +49,6 @@ export function App() {
 
   const activeConversation = conversations.find((c) => c.id === activeId);
 
-  // Auto-scroll to bottom
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
@@ -52,7 +57,6 @@ export function App() {
     scrollToBottom();
   }, [messages, streamingContent, scrollToBottom]);
 
-  // 建立 SSE 连接监听审批事件（实时推送）
   const startApprovalSse = useCallback(() => {
     if (approvalSseRef.current) return;
     const { eventSource, controller } = connectApprovalEvents((ticketId, command, message) => {
@@ -70,12 +74,10 @@ export function App() {
     }
   }, []);
 
-  // Poll for pending questions（保留轮询作为备用）
   const startPolling = useCallback(() => {
     if (pollingRef.current) return;
     pollingRef.current = setInterval(async () => {
       try {
-        // Check for pending questions
         const pending = await checkPendingQuestions();
         if (pending && pending.hasQuestion && pending.questionId && pending.questions.length > 0) {
           setPendingQuestion({
@@ -98,7 +100,6 @@ export function App() {
     }
   }, []);
 
-  // Load conversations from localStorage
   useEffect(() => {
     const saved = localStorage.getItem('omni-conversations');
     if (saved) {
@@ -115,14 +116,12 @@ export function App() {
     }
   }, []);
 
-  // Save conversations to localStorage
   useEffect(() => {
     if (conversations.length > 0) {
       localStorage.setItem('omni-conversations', JSON.stringify(conversations));
     }
   }, [conversations]);
 
-  // Persist workspace to localStorage
   useEffect(() => {
     if (workspace) {
       localStorage.setItem('omni-workspace', workspace);
@@ -131,7 +130,6 @@ export function App() {
     }
   }, [workspace]);
 
-  // Persist bypassApproval to Conversation
   useEffect(() => {
     if (activeId !== null) {
       setConversations((convs) =>
@@ -201,7 +199,6 @@ export function App() {
       timestamp: Date.now(),
     };
 
-    // Update conversation title from first message
     const title = messages.length === 0 ? text.slice(0, 30) + (text.length > 30 ? '...' : '') : activeConversation.title;
 
     setMessages((prev) => {
@@ -217,12 +214,11 @@ export function App() {
     setStreamingBlocks([]);
     setPendingQuestion(null);
     setPendingApproval(null);
-    startApprovalSse();  // 使用 SSE 实时监听审批事件
+    startApprovalSse();
     startPolling();
 
     try {
       let fullContent = '';
-      // 用于按 ID 缓冲文本内容
       const thoughtBufferById: Record<string, string> = {};
       const textBufferById: Record<string, string> = {};
       const blocksLocal: ChatStep[] = [];
@@ -252,14 +248,12 @@ export function App() {
 
         if (event.type === 'thought' && event.data) {
           fullContent += event.data;
-          // 按 ID 累加 thought 内容
           const id = event.id || 'default';
           if (!thoughtBufferById[id]) {
             thoughtBufferById[id] = '';
           }
           thoughtBufferById[id] += event.data.replace(/^\n/, '');
 
-          // 更新或创建 thought block
           const existingThoughtIdx = blocksLocal.findIndex(b => b.type === 'thought' && b.id === id);
           if (existingThoughtIdx >= 0) {
             blocksLocal[existingThoughtIdx].content = thoughtBufferById[id];
@@ -276,7 +270,6 @@ export function App() {
           setStreamingContent(fullContent);
         } else if (event.type === 'tool-call' && event.toolName) {
           fullContent += `\n[Tool: ${event.toolName}]\n`;
-          // 将工具调用关联到最后一个 thought block
           const lastThought = blocksLocal.filter(b => b.type === 'thought').pop();
           if (lastThought) {
             lastThought.toolName = event.toolName;
@@ -284,14 +277,12 @@ export function App() {
           setStreamingBlocks([...blocksLocal]);
           setStreamingContent(fullContent);
         } else if (event.type === 'text' && event.id && event.data) {
-          // 按 ID 缓冲文本
           if (!textBufferById[event.id]) {
             textBufferById[event.id] = '';
           }
           textBufferById[event.id] += event.data.replace(/^\n/, '');
           fullContent += event.data;
 
-          // 更新最后一个 text block 或创建新的
           const lastBlock = blocksLocal[blocksLocal.length - 1];
           if (lastBlock && lastBlock.type === 'text') {
             lastBlock.content = textBufferById[event.id];
@@ -329,26 +320,22 @@ export function App() {
     } finally {
       setIsStreaming(false);
       stopPolling();
-      stopApprovalSse();  // 关闭 SSE 连接
+      stopApprovalSse();
     }
   };
 
   const handleQuestionAnswered = (answerText: string) => {
     setPendingQuestion(null);
-    // 将用户回答作为新消息发送，让后端处理
     handleSend(answerText);
   };
 
   const handleApprovalHandled = () => {
     setPendingApproval(null);
-    // Clear the streaming content and restart the conversation
     setStreamingContent('');
-    // The user can continue chatting - the approval result will come through in a new message
   };
 
   return (
     <div className="flex h-full bg-zinc-950">
-      {/* Mobile backdrop for left sidebar */}
       {leftSidebarOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-30 lg:hidden"
@@ -356,7 +343,6 @@ export function App() {
         />
       )}
 
-      {/* Left Sidebar */}
       <div
         className={`fixed lg:relative z-40 h-full transition-transform duration-200 ${
           leftSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
@@ -376,7 +362,6 @@ export function App() {
       </div>
 
       <main className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
         <header className="px-4 md:px-6 py-3 md:py-4 border-b border-zinc-800 bg-zinc-950 flex items-center gap-3">
           <button
             onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
@@ -390,9 +375,30 @@ export function App() {
           <h1 className="text-base md:text-lg font-semibold text-zinc-200 truncate">
             {activeConversation?.title || 'OmniAgent'}
           </h1>
+          <div className="flex-1" />
+          {user && (
+            <div className="flex items-center gap-3">
+              <div className="hidden sm:flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                  <span className="text-white text-sm font-semibold">
+                    {user.username.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <span className="text-sm text-zinc-300">{user.username}</span>
+              </div>
+              <button
+                onClick={logout}
+                className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900 rounded-lg transition-colors"
+                title="退出登录"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+                </svg>
+              </button>
+            </div>
+          )}
         </header>
 
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto">
           {messages.length === 0 && !isStreaming && !streamingContent && !pendingQuestion && (
             <div className="flex items-center justify-center h-full">
@@ -448,7 +454,6 @@ export function App() {
                     <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                     <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                     <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                    {/* 发光背景 */}
                     <span className="absolute inset-0 bg-blue-500/30 rounded-full animate-ping opacity-75" />
                   </span>
                 </div>
@@ -501,7 +506,6 @@ export function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
         <ChatInput
           onSend={handleSend}
           disabled={isStreaming || !!pendingApproval}
@@ -514,5 +518,20 @@ export function App() {
 
       <ToolsSidebar />
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<AuthRoute><LoginPage /></AuthRoute>} />
+          <Route path="/register" element={<AuthRoute><RegisterPage /></AuthRoute>} />
+          <Route path="/" element={<PrivateRoute><ChatPage /></PrivateRoute>} />
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }

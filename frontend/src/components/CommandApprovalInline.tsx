@@ -13,9 +13,10 @@ interface CommandApprovalInlineProps {
 export function CommandApprovalInline({
   ticketId,
   command,
-  message = '该命令尝试访问 WORKSPACE 外的路径，需要确认',
+  message: _message = '该命令尝试访问 WORKSPACE 外的路径，需要确认',
   onApproved,
 }: CommandApprovalInlineProps) {
+  void _message;
   const [status, setStatus] = useState<'idle' | 'approving' | 'approved' | 'rejected'>('idle');
 
   const handleApprove = async () => {
