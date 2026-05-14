@@ -256,3 +256,10 @@ skill:
   error:
     user-detail: simple
     log-detail: full
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:your-256-bit-secret-key-here-change-in-production-must-be-at-least-32-chars}
+    expiration: 604800000  # 7 days in ms
+  cors:
+    allowed-origins: http://localhost:5173
