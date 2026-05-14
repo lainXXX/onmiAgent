@@ -105,8 +105,14 @@ interface ConversationItemProps {
 
 function ConversationItem({ conv, isActive, onClick, onDelete, onRename }: ConversationItemProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [editValue, setEditValue] = useState(conv.title);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleToggleExpand = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsExpanded(!isExpanded);
+  };
 
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -131,52 +137,86 @@ function ConversationItem({ conv, isActive, onClick, onDelete, onRename }: Conve
     }
   };
 
+  const formatDate = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return date.toLocaleString('zh-CN', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
   return (
     <div
-      className={`group w-full flex items-center gap-2 px-3 py-2 rounded text-left text-sm transition-colors cursor-pointer ${
+      className={`group w-full flex flex-col px-3 py-2 rounded text-left text-sm transition-colors cursor-pointer ${
         isActive
           ? 'bg-zinc-900 text-zinc-100 border border-zinc-800'
           : 'text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300'
       }`}
     >
-      <button onClick={onClick} className="flex-1 flex items-center gap-2 min-w-0">
-        <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-        </svg>
-        {isEditing ? (
-          <input
-            ref={(el) => { inputRef.current = el; }}
-            type="text"
-            value={editValue}
-            onChange={(e) => setEditValue(e.target.value)}
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-            onClick={(e) => e.stopPropagation()}
-            autoFocus
-            className="flex-1 bg-transparent border-b border-zinc-500 outline-none text-zinc-100 truncate"
-          />
-        ) : (
-          <span
-            className="truncate cursor-text"
-            onDoubleClick={handleDoubleClick}
-            title="Double-click to edit"
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleToggleExpand}
+          className="p-0.5 hover:text-zinc-300 flex-shrink-0"
+          title={isExpanded ? '收起' : '展开'}
+        >
+          <svg
+            className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
           >
-            {conv.title}
-          </span>
-        )}
-      </button>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-        className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity flex-shrink-0"
-        title="Delete"
-      >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-        </svg>
-      </button>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+        <button onClick={onClick} className="flex-1 flex items-center gap-2 min-w-0">
+          <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+          {isEditing ? (
+            <input
+              ref={(el) => { inputRef.current = el; }}
+              type="text"
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={handleBlur}
+              onKeyDown={handleKeyDown}
+              onClick={(e) => e.stopPropagation()}
+              autoFocus
+              className="flex-1 bg-transparent border-b border-zinc-500 outline-none text-zinc-100 truncate"
+            />
+          ) : (
+            <span
+              className="truncate cursor-text"
+              onDoubleClick={handleDoubleClick}
+              title="Double-click to edit"
+            >
+              {conv.title}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity flex-shrink-0"
+          title="Delete"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+        </button>
+      </div>
+      {isExpanded && (
+        <div className="mt-2 pl-5 text-xs text-zinc-500 space-y-1">
+          <div>创建时间: {formatDate(conv.createdAt)}</div>
+          <div>消息数: {conv.messages?.length || 0}</div>
+          <div className="text-zinc-600">会话 ID: {conv.sessionId?.slice(0, 8)}...</div>
+        </div>
+      )}
     </div>
   );
 }
