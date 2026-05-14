@@ -364,7 +364,10 @@ function ChatPage() {
       <main className="flex-1 flex flex-col min-w-0">
         <header className="px-4 md:px-6 py-3 md:py-4 border-b border-zinc-800 bg-zinc-950 flex items-center gap-3">
           <button
-            onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setLeftSidebarOpen(!leftSidebarOpen);
+            }}
             className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900 rounded-lg transition-colors"
             title={leftSidebarOpen ? '隐藏侧边栏' : '显示侧边栏'}
           >
