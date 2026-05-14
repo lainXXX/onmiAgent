@@ -65,6 +65,7 @@ export async function* streamChat(
   const response = await fetch(`${API_BASE}/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ question, sessionId, workspace, bypassApproval } satisfies ChatRequest),
   });
 
@@ -168,7 +169,7 @@ export async function checkPendingQuestions(): Promise<{
   questions: Question[];
 } | null> {
   try {
-    const response = await fetch('/api/questions/pending');
+    const response = await fetch('/api/questions/pending', { credentials: 'include' });
     const data = await response.json();
     return data;
   } catch {
@@ -184,7 +185,7 @@ export async function checkPendingApprovals(): Promise<
   }[]
 > {
   try {
-    const response = await fetch('/approval/pending');
+    const response = await fetch('/approval/pending', { credentials: 'include' });
     return response.json();
   } catch {
     return [];
@@ -199,6 +200,7 @@ export async function submitQuestionAnswer(
   await fetch(`/api/questions/${questionId}/answer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ answers, annotations: annotations || {} }),
   });
 }
@@ -207,6 +209,7 @@ export async function skipQuestion(questionId: string): Promise<void> {
   await fetch(`/api/questions/${questionId}/answer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ skip: true, skipReason: 'User skipped' }),
   });
 }
@@ -219,6 +222,7 @@ export async function submitApproval(
   const response = await fetch('/approval', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ ticketId, command, approved }),
   });
   return response.json();
