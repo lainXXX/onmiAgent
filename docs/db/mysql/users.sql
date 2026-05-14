@@ -1,0 +1,8 @@
+-- 用户表
+CREATE TABLE IF NOT EXISTS users (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '用户ID',
+    username VARCHAR(50) UNIQUE NOT NULL COMMENT '用户名',
+    password VARCHAR(255) NOT NULL COMMENT 'BCrypt 加密后的密码',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    INDEX idx_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
